@@ -8,7 +8,7 @@ from openai import OpenAI
 # 環境変数からAPIキーとWebhook URLを取得
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-MODEL_NAME = "gpt-4"
+MODEL_NAME = "gpt-3.5-turbo"
 
 # OpenAIクライアントの初期化
 client = OpenAI(
@@ -126,8 +126,11 @@ def main():
         info = "\n".join([f"{k}: {v}" for k, v in grant.items() if v])
         label = f"JNet21 補助金 {i}"
         result = evaluate_scheme_with_gpt(info, label)
-        messages.append(result)
-
+        # 「対象」などを含む結果だけ残す
+        if "対象" in result or "申請可能" in result:
+            messages.append(result)
+        else:
+            print(f"スキップ：{label}")
     # 2. ミラサポplusページの評価
     mirasapo_text = fetch_mirasapo_text()
     result = evaluate_mirasapo_with_gpt(mirasapo_text)
