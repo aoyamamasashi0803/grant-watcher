@@ -30,9 +30,16 @@ def send_to_google_chat(message, webhook_url):
 def fetch_jnet21_top5():
     url = "https://code4fukui.github.io/JNet21/j-net21_support-list.csv"
     headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     }
-    response = requests.get(url, headers=headers) 
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        print("正常に取得できました！")
+    except requests.exceptions.RequestException as e:
+        print("エラー内容:", e)
+    
     response.raise_for_status()
     lines = response.text.splitlines()
     reader = csv.DictReader(lines)
