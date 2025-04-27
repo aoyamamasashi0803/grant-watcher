@@ -134,10 +134,10 @@ def main():
 
     result2 = evaluate_with_gpt(prompt2, "ミラサポplus")
 
-    if ("優先度 高" in result2 or "優先度: 高" in result2
-        or "優先度 中" in result2 or "優先度: 中" in result2
-        or "優先度 低" in result2 or "優先度: 低" in result2):
-        priority_entries.append(["ミラサポplus", result2])
+    if ("申請優先度 高" in result or "申請優先度: 高" in result
+        or "申請優先度 中" in result or "申請優先度: 中" in result
+        or "申請優先度 低" in result or "申請優先度: 低" in result):
+        priority_entries.append([label, result])
 
     if "優先度 高" in result2 or "優先度: 高" in result2:
         high_priority_messages.append(f"【ミラサポplus】\n{result2}")
