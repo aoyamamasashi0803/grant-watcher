@@ -2,6 +2,7 @@ import os
 import json
 import requests
 import csv
+import re
 from io import StringIO
 from bs4 import BeautifulSoup
 from openai import OpenAI
@@ -79,6 +80,13 @@ def evaluate_with_gpt(prompt, label):
         print(f"⚠️ {label} GPT評価失敗: {e}")
         return f"評価失敗: {e}"
 
+# 優先度を抽出する関数
+def extract_priority(text):
+    match = re.search(r"申請優先度[：: ]*\s*(高|中|低)", text)
+    if match:
+        return match.group(1)  # 「高」「中」「低」を返す
+    return None
+
 # ================================
 # Main 実行処理
 # ================================
@@ -109,15 +117,12 @@ def main():
 """
 
         result = evaluate_with_gpt(prompt, label)
+        priority = extract_priority(result)
 
-        # 優先度「高」「中」「低」どれでも保存対象
-        if ("優先度 高" in result or "優先度: 高" in result
-            or "優先度 中" in result or "優先度: 中" in result
-            or "優先度 低" in result or "優先度: 低" in result):
+        if priority in ["高", "中", "低"]:
             priority_entries.append([label, result])
 
-        # 優先度「高」だけChat通知対象
-        if "優先度 高" in result or "優先度: 高" in result:
+        if priority == "高":
             high_priority_messages.append(f"【{label}】\n{result}")
 
     # 2. ミラサポplusページの評価
@@ -133,13 +138,12 @@ def main():
 """
 
     result2 = evaluate_with_gpt(prompt2, "ミラサポplus")
+    priority2 = extract_priority(result2)
 
-    if ("申請優先度 高" in result or "申請優先度: 高" in result
-        or "申請優先度 中" in result or "申請優先度: 中" in result
-        or "申請優先度 低" in result or "申請優先度: 低" in result):
-        priority_entries.append([label, result])
+    if priority2 in ["高", "中", "低"]:
+        priority_entries.append(["ミラサポplus", result2])
 
-    if "優先度 高" in result2 or "優先度: 高" in result2:
+    if priority2 == "高":
         high_priority_messages.append(f"【ミラサポplus】\n{result2}")
 
     # 3. スプレッドシートに書き込み
