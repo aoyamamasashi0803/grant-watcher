@@ -29,7 +29,10 @@ def send_to_google_chat(message, webhook_url):
 # J-Net21補助金情報を取得して上位5件をリスト化
 def fetch_jnet21_top5():
     url = "https://code4fukui.github.io/JNet21/j-net21_support-list.csv"
-    response = requests.get(url)
+    headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    response = requests.get(url, headers=headers) 
     response.raise_for_status()
     lines = response.text.splitlines()
     reader = csv.DictReader(lines)
