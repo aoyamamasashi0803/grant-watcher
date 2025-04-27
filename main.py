@@ -14,7 +14,7 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
 GOOGLE_SERVICE_ACCOUNT = os.getenv("GOOGLE_SERVICE_ACCOUNT")
 
-MODEL_NAME = "gpt-3.5-turbo"  # コスト安の3.5モデル
+MODEL_NAME = "gpt-3.5-turbo"
 
 # OpenAIクライアント初期化
 client = OpenAI(
@@ -29,7 +29,7 @@ credentials = service_account.Credentials.from_service_account_info(
     scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 )
 gc = gspread.authorize(credentials)
-sheet = gc.open_by_key(SPREADSHEET_ID).sheet1  # 最初のシートを指定
+sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
 
 # Google Chatにメッセージ送信
 def send_to_google_chat(message, webhook_url):
@@ -87,7 +87,8 @@ def main():
     grants = fetch_jnet21()
     mirasapo_text = fetch_mirasapo_text()
 
-    priority_high_entries = []  # 優先度高のみ保存対象
+    priority_entries = []  # 高・中・低すべて保存対象
+    high_priority_messages = []  # 高だけ通知対象
 
     company_info = "長野県塩尻市の情報通信業、従業員56名の中小企業"
 
@@ -109,10 +110,16 @@ def main():
 
         result = evaluate_with_gpt(prompt, label)
 
+        # 優先度「高」「中」「低」どれでも保存対象
         if ("優先度 高" in result or "優先度: 高" in result
-            or "優先度 中" in result or "優先度: 中" in result):
-            priority_high_entries.append([label, result])
-        
+            or "優先度 中" in result or "優先度: 中" in result
+            or "優先度 低" in result or "優先度: 低" in result):
+            priority_entries.append([label, result])
+
+        # 優先度「高」だけChat通知対象
+        if "優先度 高" in result or "優先度: 高" in result:
+            high_priority_messages.append(f"【{label}】\n{result}")
+
     # 2. ミラサポplusページの評価
     prompt2 = f"""
 以下はミラサポplusトップページの情報です。
@@ -127,28 +134,32 @@ def main():
 
     result2 = evaluate_with_gpt(prompt2, "ミラサポplus")
 
+    if ("優先度 高" in result2 or "優先度: 高" in result2
+        or "優先度 中" in result2 or "優先度: 中" in result2
+        or "優先度 低" in result2 or "優先度: 低" in result2):
+        priority_entries.append(["ミラサポplus", result2])
+
     if "優先度 高" in result2 or "優先度: 高" in result2:
-        priority_high_entries.append(["ミラサポplus", result2])
+        high_priority_messages.append(f"【ミラサポplus】\n{result2}")
 
     # 3. スプレッドシートに書き込み
-    if priority_high_entries:
+    if priority_entries:
         sheet.clear()  # 既存内容をクリア
         sheet.append_row(["ラベル", "評価結果"])  # ヘッダー
-        for entry in priority_high_entries:
+        for entry in priority_entries:
             sheet.append_row(entry)
-        print("✅ 優先度高の評価結果をスプレッドシートに保存しました。")
+        print("✅ 評価結果をスプレッドシートに保存しました。")
     else:
-        print("✅ 優先度高の対象はありませんでした。")
+        print("✅ 保存対象がありませんでした。")
 
-    # 4. Chatにも通知
-    if priority_high_entries:
-        messages = [f"【{label}】\n{result}" for label, result in priority_high_entries]
-        full_message = "📢 優先度高 支援制度一覧\n\n" + "\n\n".join(messages)
+    # 4. Chat通知
+    if high_priority_messages:
+        full_message = "📢 優先度高 支援制度一覧\n\n" + "\n\n".join(high_priority_messages)
         if len(full_message) > 4000:
             full_message = full_message[:3990] + "\n...続きはスプレッドシートを確認！"
         send_to_google_chat(full_message, WEBHOOK_URL)
     else:
-        print("✅ 通知対象なし（スプレッドシート更新のみ）")
+        print("✅ Chat通知対象なし（スプレッドシート更新のみ）")
 
 if __name__ == "__main__":
     main()
