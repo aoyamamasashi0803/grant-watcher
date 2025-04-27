@@ -33,14 +33,4 @@ except Exception as e:
     print(f"❌ スプレッドシート接続失敗: {e}")
 
 # テスト書き込み
-try:
-    sheet.clear()
-    print("✅ sheet.clear() 成功")
-except Exception as e:
-    print(f"❌ sheet.clear() 失敗: {e}")
-
-try:
-    sheet.append_row(["テスト書き込み成功！"])
-    print("✅ sheet.append_row() 成功")
-except Exception as e:
-    print(f"❌ sheet.append_row() 失敗: {e}")
+try
