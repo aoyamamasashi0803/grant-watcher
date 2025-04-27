@@ -7,17 +7,40 @@ from google.oauth2 import service_account
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
 GOOGLE_SERVICE_ACCOUNT = os.getenv("GOOGLE_SERVICE_ACCOUNT")
 
+print("✅ 環境変数取得完了")
+
 # スプレッドシートに接続
-credentials_info = json.loads(GOOGLE_SERVICE_ACCOUNT)
-credentials = service_account.Credentials.from_service_account_info(
-    credentials_info,
-    scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-)
-gc = gspread.authorize(credentials)
-sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
+try:
+    credentials_info = json.loads(GOOGLE_SERVICE_ACCOUNT)
+    credentials = service_account.Credentials.from_service_account_info(
+        credentials_info,
+        scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    )
+    print("✅ 認証情報ロード成功")
+except Exception as e:
+    print(f"❌ 認証情報ロード失敗: {e}")
 
-# 🔥 テスト書き込み
-sheet.clear()  # 既存データクリア
-sheet.append_row(["テスト書き込み成功！"])
+try:
+    gc = gspread.authorize(credentials)
+    print("✅ gspread認証成功")
+except Exception as e:
+    print(f"❌ gspread認証失敗: {e}")
 
-print("✅ スプレッドシートにテスト書き込みできました！")
+try:
+    sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
+    print("✅ スプレッドシート接続成功")
+except Exception as e:
+    print(f"❌ スプレッドシート接続失敗: {e}")
+
+# テスト書き込み
+try:
+    sheet.clear()
+    print("✅ sheet.clear() 成功")
+except Exception as e:
+    print(f"❌ sheet.clear() 失敗: {e}")
+
+try:
+    sheet.append_row(["テスト書き込み成功！"])
+    print("✅ sheet.append_row() 成功")
+except Exception as e:
+    print(f"❌ sheet.append_row() 失敗: {e}")
