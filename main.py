@@ -8,7 +8,7 @@ from openai import OpenAI
 # 環境変数からAPIキーとWebhook URLを取得
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-MODEL_NAME = "gpt-3.5-turbo"
+MODEL_NAME = "gpt-3.5-turbo"  # ★ gpt-3.5-turboに変更！
 
 # OpenAIクライアントの初期化
 client = OpenAI(
@@ -26,28 +26,18 @@ def send_to_google_chat(message, webhook_url):
     else:
         print(f"⚠️ Chat通知失敗: {response.status_code} - {response.text}")
 
-# J-Net21補助金情報を取得して上位5件をリスト化
-def fetch_jnet21_top5():
+# J-Net21補助金情報を取得
+def fetch_jnet21():
     url = "https://code4fukui.github.io/JNet21/j-net21_support-list.csv"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-    }
-    
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        print("正常に取得できました！")
-    except requests.exceptions.RequestException as e:
-        print("エラー内容:", e)
-    
+    response = requests.get(url)
     response.raise_for_status()
     lines = response.text.splitlines()
     reader = csv.DictReader(lines)
     grants = list(reader)
     print(f"✅ JNet21支援制度 {len(grants)}件取得済み")
-    return grants[:5]
+    return grants
 
-# ミラサポplusトップページのテキストを取得
+# ミラサポplusページテキストを取得
 def fetch_mirasapo_text():
     url = "https://code4fukui.github.io/mirasapo/"
     response = requests.get(url)
@@ -57,10 +47,42 @@ def fetch_mirasapo_text():
     print("✅ ミラサポplusページテキスト取得済み")
     return text
 
-# GPTで補助金情報を評価する
-def evaluate_scheme_with_gpt(info, label):
+# GPTで評価する共通関数
+def evaluate_with_gpt(prompt, label):
+    try:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": "あなたは補助金・助成金マッチングの専門家です。"},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        answer = response.choices[0].message.content.strip()
+        print(f"✅ {label} 評価完了")
+        return answer
+    except Exception as e:
+        print(f"⚠️ {label} GPT評価失敗: {e}")
+        return f"評価失敗: {e}"
+
+# ================================
+# Main 実行処理
+# ================================
+
+def main():
+    grants = fetch_jnet21()
+    mirasapo_text = fetch_mirasapo_text()
+
+    notifications = []  # 通知対象（優先度高）
+    csv_results = []    # 全件記録用
+
     company_info = "長野県塩尻市の情報通信業、従業員56名の中小企業"
-    prompt = f"""
+
+    # 1. JNet21支援制度の評価
+    for idx, grant in enumerate(grants, 1):
+        info = "\n".join([f"{k}: {v}" for k, v in grant.items() if v])
+        label = f"JNet21 補助金 {idx}"
+
+        prompt = f"""
 以下は補助金支援制度の情報です。
 
 {info}
@@ -70,75 +92,68 @@ def evaluate_scheme_with_gpt(info, label):
 この企業はこの支援制度の申請対象となりますか？
 理由と、申請優先度（高・中・低）も教えてください。
 """
-    try:
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": "あなたは補助金・助成金支援の専門家です。"},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        answer = response.choices[0].message.content.strip()
-        print(f"✅ {label} 評価完了")
-        return f"【{label}】\n{answer}\n"
-    except Exception as e:
-        print(f"⚠️ {label} GPT評価失敗: {e}")
-        return f"【{label}】評価失敗: {e}\n"
 
-# GPTでミラサポページを評価する
-def evaluate_mirasapo_with_gpt(text):
-    company_info = "長野県塩尻市の情報通信業、従業員56名の中小企業"
-    prompt = f"""
+        result = evaluate_with_gpt(prompt, label)
+
+        # 優先度を抽出する
+        priority = ""
+        if "優先度 高" in result or "優先度: 高" in result:
+            priority = "高"
+        elif "優先度 中" in result or "優先度: 中" in result:
+            priority = "中"
+        elif "優先度 低" in result or "優先度: 低" in result:
+            priority = "低"
+
+        # 優先度高だけ通知対象にする
+        if priority == "高":
+            notifications.append(f"【{label}】\n{result}\n")
+
+        # CSV保存用に記録
+        csv_results.append({
+            "Label": label,
+            "評価結果": result,
+            "優先度": priority
+        })
+
+    # 2. ミラサポplusトップページ評価
+    prompt2 = f"""
 以下はミラサポplusトップページの情報です。
 
-{text}
+{mirasapo_text}
 
 想定企業: {company_info}
 
 この企業に関連して申請可能な支援制度はありますか？
 該当制度名と理由、申請優先度（高・中・低）も教えてください。
 """
-    try:
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": "あなたは補助金・助成金支援の専門家です。"},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        answer = response.choices[0].message.content.strip()
-        print("✅ ミラサポplusページ評価完了")
-        return f"【ミラサポplusトップページ】\n{answer}\n"
-    except Exception as e:
-        print(f"⚠️ ミラサポplus GPT評価失敗: {e}")
-        return f"【ミラサポplusトップページ】評価失敗: {e}\n"
 
-# ================================
-# Main 実行処理
-# ================================
+    result2 = evaluate_with_gpt(prompt2, "ミラサポplus")
 
-def main():
-    messages = []
+    # ミラサポ結果も通知＆CSV保存
+    if "優先度 高" in result2 or "優先度: 高" in result2:
+        notifications.append(f"【ミラサポplus】\n{result2}\n")
+    csv_results.append({
+        "Label": "ミラサポplus",
+        "評価結果": result2,
+        "優先度": "高" if ("優先度 高" in result2 or "優先度: 高" in result2) else ""
+    })
 
-    # 1. J-Net21データの評価
-    grants = fetch_jnet21_top5()
-    for i, grant in enumerate(grants, 1):
-        info = "\n".join([f"{k}: {v}" for k, v in grant.items() if v])
-        label = f"JNet21 補助金 {i}"
-        result = evaluate_scheme_with_gpt(info, label)
-        # 「対象」などを含む結果だけ残す
-        if "対象" in result or "申請可能" in result:
-            messages.append(result)
-        else:
-            print(f"スキップ：{label}")
-    # 2. ミラサポplusページの評価
-    mirasapo_text = fetch_mirasapo_text()
-    result = evaluate_mirasapo_with_gpt(mirasapo_text)
-    messages.append(result)
+    # 3. 通知（優先度高のみ）
+    if notifications:
+        full_message = "📢 優先度高 支援制度通知\n\n" + "\n".join(notifications)
+        send_to_google_chat(full_message, WEBHOOK_URL)
+    else:
+        print("✅ 優先度高の通知対象はありませんでした。")
 
-    # 3. Google Chatにまとめて通知
-    full_message = "📢 補助金支援制度評価レポート\n\n" + "\n".join(messages)
-    send_to_google_chat(full_message, WEBHOOK_URL)
+    # 4. CSVに保存
+    output_csv = "grant_evaluation_results.csv"
+    with open(output_csv, "w", newline="", encoding="utf-8") as csvfile:
+        fieldnames = ["Label", "評価結果", "優先度"]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in csv_results:
+            writer.writerow(row)
+    print(f"✅ 評価結果を {output_csv} に保存しました。")
 
 if __name__ == "__main__":
     main()
