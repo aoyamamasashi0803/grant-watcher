@@ -109,9 +109,10 @@ def main():
 
         result = evaluate_with_gpt(prompt, label)
 
-        if "優先度 高" in result or "優先度: 高" in result:
+        if ("優先度 高" in result or "優先度: 高" in result
+            or "優先度 中" in result or "優先度: 中" in result):
             priority_high_entries.append([label, result])
-
+        
     # 2. ミラサポplusページの評価
     prompt2 = f"""
 以下はミラサポplusトップページの情報です。
