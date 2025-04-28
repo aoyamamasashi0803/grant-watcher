@@ -2,28 +2,28 @@ name: Weekly Grant Watcher
 
 on:
   schedule:
-    - cron: '0 3 * * 1'  # 毎週月曜日12:00 JST（= 03:00 UTC）
-  workflow_dispatch:  # 手動実行もできる
+    - cron: '0 3 * * 1' # 毎週月曜の12:00 JST
+  workflow_dispatch:
 
 jobs:
   run:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'  # 最新安定版を指定
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
 
-    - name: Install dependencies
-      run: |
-        pip install openai beautifulsoup4 requests gspread google-auth
-    
-    - name: Run grant watcher
-      env:
-        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-      run: python main.py
+      - name: Install dependencies
+        run: pip install openai beautifulsoup4 requests gspread google-auth
+
+      - name: Run grant watcher
+        env:
+          GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        run: python main.py
