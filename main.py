@@ -31,21 +31,11 @@ except Exception as e:
 
 # --- 関数定義 ---
 def scrape_jnet21_grants():
-    url = "https://j-net21.smrj.go.jp/support/publicsupport/"
-    response = requests.get(url)
-    response.encoding = response.apparent_encoding
-    soup = BeautifulSoup(response.text, "html.parser")
-
-    grants = []
-    for article in soup.select(".publicsupport__item"):
-        title_elem = article.select_one(".publicsupport__title")
-        if title_elem:
-            title = title_elem.text.strip()
-            link = article.find("a").get("href")
-            full_url = f"https://j-net21.smrj.go.jp{link}" if link.startswith("/") else link
-            grants.append({"title": title, "url": full_url})
-    return grants
-
+    return [
+        {"title": "IT導入補助金", "url": "https://example.com/it"},
+        {"title": "ものづくり補助金", "url": "https://example.com/mono"},
+        {"title": "小規模事業者持続化補助金", "url": "https://example.com/jizoku"},
+    ]
 def evaluate_grant_with_gpt(title, url):
     prompt = f"""
 あなたは企業向け助成金アドバイザーです。
