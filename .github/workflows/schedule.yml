@@ -20,8 +20,8 @@ jobs:
 
     - name: Install dependencies
       run: |
-        pip install openai beautifulsoup4 requests
-
+        pip install openai beautifulsoup4 requests gspread google-auth
+    
     - name: Run grant watcher
       env:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
