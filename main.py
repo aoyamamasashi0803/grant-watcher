@@ -5,8 +5,11 @@ from google.oauth2 import service_account
 
 # 環境変数から設定を取得
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
-GOOGLE_SERVICE_ACCOUNT = os.getenv("GOOGLE_SERVICE_ACCOUNT")
-
+# Secrets（環境変数）からセット
+GOOGLE_SERVICE_ACCOUNT = os.environ.get("GOOGLE_SERVICE_ACCOUNT")
+if GOOGLE_SERVICE_ACCOUNT is None:
+    raise ValueError("GOOGLE_SERVICE_ACCOUNTが設定されていません。")
+    
 print("✅ 環境変数取得完了")
 
 # スプレッドシートに接続
