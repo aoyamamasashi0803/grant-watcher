@@ -1,4 +1,4 @@
-import os
+mport os
 import json
 import requests
 import openai
@@ -206,11 +206,11 @@ def main():
     if not grants:
         print("⚠️ 助成金情報が取得できませんでした。テスト用ダミーデータを使用します。")
         grants = [
-            {"title": "【テスト】令和7年度 中小企業デジタル化支援補助金", "url": "https://example.com/digital"},
-            {"title": "【テスト】事業再構築補助金（第10回）", "url": "https://example.com/saikouchiku"},
-            {"title": "【テスト】ものづくり補助金 2025年度第1次公募", "url": "https://example.com/monodukuri"},
-            {"title": "【テスト】小規模事業者持続化補助金", "url": "https://example.com/jizokuka"},
-            {"title": "【テスト】IT導入補助金2025", "url": "https://example.com/it"}
+            {"title": "補助金・助成金：「令和7年度 中小企業デジタル化支援補助金」", "url": "https://example.com/digital"},
+            {"title": "補助金・助成金：「事業再構築補助金（第10回）」", "url": "https://example.com/saikouchiku"},
+            {"title": "補助金・助成金：「ものづくり補助金 2025年度第1次公募」", "url": "https://example.com/monodukuri"},
+            {"title": "補助金・助成金：「小規模事業者持続化補助金」", "url": "https://example.com/jizokuka"},
+            {"title": "補助金・助成金：「IT導入補助金2025」", "url": "https://example.com/it"}
         ]
         print(f"✅ テスト用ダミーデータ: {len(grants)} 件")
 
