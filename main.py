@@ -231,7 +231,7 @@ def main():
         send_to_google_chat(full_message, WEBHOOK_URL)
     else:
         print("❌ 送信するメッセージがありません")
-        send_to_google_chat("助成金情報の評価結果はありませんでした。", WEBHOOK_URL))
+        send_to_google_chat("助成金情報の評価結果はありませんでした。", WEBHOOK_URL)
         target = target.group(1).strip() if target else "不明"
         
         reason = re.search(r"理由:?\s*(.+)", result)
