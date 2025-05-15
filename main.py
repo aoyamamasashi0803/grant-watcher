@@ -3,6 +3,8 @@ import json
 import requests
 import openai
 import gspread
+import datetime  # datetime モジュールを追加
+import re  # 正規表現用のモジュールを追加
 from bs4 import BeautifulSoup
 from google.oauth2 import service_account
 
@@ -11,6 +13,15 @@ SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
 GOOGLE_SERVICE_ACCOUNT = os.getenv("GOOGLE_SERVICE_ACCOUNT")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+
+# 環境変数チェック
+if not WEBHOOK_URL:
+    print("❌ WEBHOOK_URL が設定されていません")
+    exit(1)
+else:
+    # 最初の数文字だけをログに出す（セキュリティのため）
+    webhook_preview = WEBHOOK_URL[:15] + "..." if len(WEBHOOK_URL) > 15 else WEBHOOK_URL
+    print(f"✅ WEBHOOK_URL: {webhook_preview}")
 
 # --- OpenAI初期化 ---
 openai.api_key = OPENAI_API_KEY
@@ -32,19 +43,58 @@ except Exception as e:
 # --- 関数定義 ---
 def scrape_jnet21_grants():
     url = "https://j-net21.smrj.go.jp/public-support/"
-    response = requests.get(url)
-    response.encoding = response.apparent_encoding
-    soup = BeautifulSoup(response.text, "html.parser")
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()  # エラーチェック
+        response.encoding = response.apparent_encoding
+        soup = BeautifulSoup(response.text, "html.parser")
 
-    grants = []
-    for item in soup.select(".c-list__item"):
-        title_elem = item.select_one(".c-list__title a")
-        if title_elem:
-            title = title_elem.text.strip()
-            link = title_elem.get("href")
-            full_url = f"https://j-net21.smrj.go.jp{link}" if link.startswith("/") else link
-            grants.append({"title": title, "url": full_url})
-    return grants
+        grants = []
+        # 選択子を複数パターン試す（サイト構造が変わっている可能性があるため）
+        selectors = [
+            ".c-list__item",
+            ".list-item",
+            ".grant-item",
+            ".support-list li",
+            "article",
+            ".entry"
+        ]
+        
+        for selector in selectors:
+            items = soup.select(selector)
+            if items:
+                print(f"✅ セレクタ '{selector}' で {len(items)} 件見つかりました")
+                for item in items:
+                    # タイトルを探す複数パターン
+                    title_elem = None
+                    for title_selector in [".c-list__title a", "h3 a", "h2 a", ".title a", "a"]:
+                        title_elem = item.select_one(title_selector)
+                        if title_elem:
+                            break
+                    
+                    if title_elem:
+                        title = title_elem.text.strip()
+                        link = title_elem.get("href")
+                        if link:
+                            full_url = f"https://j-net21.smrj.go.jp{link}" if link.startswith("/") else link
+                            grants.append({"title": title, "url": full_url})
+                
+                # 見つかったらループを抜ける
+                if grants:
+                    break
+        
+        # デバッグ情報
+        print(f"スクレイピング結果: {len(grants)} 件の助成金情報")
+        if not grants:
+            print(f"HTMLの内容: {response.text[:500]}...")  # 最初の500文字を表示
+            
+        return grants
+    except Exception as e:
+        print(f"❌ スクレイピングエラー: {e}")
+        return []
 
 def evaluate_grant_with_gpt(title, url):
     prompt = f"""
@@ -73,39 +123,17 @@ def evaluate_grant_with_gpt(title, url):
 def send_to_google_chat(message, webhook_url):
     headers = {"Content-Type": "application/json"}
     
-    # カード形式のメッセージに変更（見やすくするため）
-    payload = {
-        "text": "📢 助成金支援制度評価レポート",
-        "cards": [
-            {
-                "header": {
-                    "title": "助成金支援制度評価レポート",
-                    "subtitle": f"更新日時: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
-                },
-                "sections": [
-                    {
-                        "widgets": [
-                            {
-                                "textParagraph": {
-                                    "text": message
-                                }
-                            }
-                        ]
-                    }
-                ]
-            }
-        ]
-    }
+    # シンプルなテキストメッセージ形式
+    payload = {"text": f"📢 助成金支援制度評価レポート\n更新日時: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n{message}"}
     
     try:
         response = requests.post(webhook_url, headers=headers, json=payload)
         response.raise_for_status()
         print(f"✅ Google Chatに通知しました。ステータスコード: {response.status_code}")
-        print(f"応答本文: {response.text}")
     except Exception as e:
         print(f"❌ Google Chat送信エラー: {e}")
         print(f"リクエスト内容: {json.dumps(payload, ensure_ascii=False)}")
-        
+
 # --- メイン処理 ---
 def main():
     print("✅ 助成金情報取得開始")
@@ -117,10 +145,12 @@ def main():
     headers = ["No.", "タイトル", "URL", "対象かどうか", "理由", "申請優先度"]
     sheet.append_row(headers)
 
-    full_message = ""  # メッセージ内容を初期化
+    # メッセージ内容を初期化
+    full_message = ""
     
-    if not grants:  # 助成金情報が取得できなかった場合
-        error_msg = "助成金情報が取得できませんでした。"
+    # 助成金情報が取得できなかった場合
+    if not grants:
+        error_msg = "助成金情報が取得できませんでした。サイト構造が変更された可能性があります。"
         print(f"❌ {error_msg}")
         send_to_google_chat(error_msg, WEBHOOK_URL)
         return
@@ -134,7 +164,6 @@ def main():
         print(f"✅ {i}件目 評価完了")
 
         # GPT回答の分解（正規表現を使ってより堅牢に）
-        import re
         target = re.search(r"対象かどうか:?\s*(.+)", result)
         target = target.group(1).strip() if target else "不明"
         
@@ -158,6 +187,6 @@ def main():
     else:
         print("❌ 送信するメッセージがありません")
         send_to_google_chat("助成金情報の評価結果はありませんでした。", WEBHOOK_URL)
-        
+
 if __name__ == "__main__":
     main()
