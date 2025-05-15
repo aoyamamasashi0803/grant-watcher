@@ -7,6 +7,7 @@ import datetime  # datetime モジュールを追加
 import re  # 正規表現用のモジュールを追加
 from bs4 import BeautifulSoup
 from google.oauth2 import service_account
+from urllib.parse import urlparse
 
 # --- 環境変数読み込み ---
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
@@ -62,50 +63,82 @@ def scrape_jnet21_grants():
                 print(f"✅ URL {url} アクセス成功")
                 response.encoding = response.apparent_encoding
                 soup = BeautifulSoup(response.text, "html.parser")
-
-        grants = []
-        # 選択子を複数パターン試す（サイト構造が変わっている可能性があるため）
-        selectors = [
-            ".c-list__item",
-            ".list-item",
-            ".grant-item",
-            ".support-list li",
-            "article",
-            ".entry"
-        ]
-        
-        for selector in selectors:
-            items = soup.select(selector)
-            if items:
-                print(f"✅ セレクタ '{selector}' で {len(items)} 件見つかりました")
-                for item in items:
-                    # タイトルを探す複数パターン
-                    title_elem = None
-                    for title_selector in [".c-list__title a", "h3 a", "h2 a", ".title a", "a"]:
-                        title_elem = item.select_one(title_selector)
-                        if title_elem:
-                            break
-                    
-                    if title_elem:
-                        title = title_elem.text.strip()
-                        link = title_elem.get("href")
-                        if link:
-                            full_url = f"https://j-net21.smrj.go.jp{link}" if link.startswith("/") else link
-                            grants.append({"title": title, "url": full_url})
                 
-                # 見つかったらループを抜ける
+                # デバッグ: HTML構造確認
+                print(f"ページタイトル: {soup.title.text if soup.title else 'タイトルなし'}")
+                
+                grants = []
+                # 選択子を複数パターン試す（サイト構造が変わっている可能性があるため）
+                selectors = [
+                    ".c-list__item",
+                    ".list-item",
+                    ".grant-item",
+                    ".support-list li",
+                    "article",
+                    ".entry",
+                    ".o-list__item",
+                    ".o-panel-list__item",
+                    ".o-block-list__item",
+                    "li.o-list__item",
+                    ".m-panel-article",
+                    ".m-block-article",
+                    "li"
+                ]
+                
+                # デバッグ: 各セレクタの結果出力
+                for selector in selectors:
+                    items = soup.select(selector)
+                    print(f"セレクタ '{selector}': {len(items)} 件")
+                
+                for selector in selectors:
+                    items = soup.select(selector)
+                    if items:
+                        print(f"✅ セレクタ '{selector}' で {len(items)} 件見つかりました")
+                        for item in items:
+                            # タイトルを探す複数パターン
+                            title_elem = None
+                            for title_selector in [".c-list__title a", "h3 a", "h2 a", ".title a", "a", ".m-block-article__title a", ".o-panel-article__title", ".m-panel-article__title", "dt a", ".m-article-title"]:
+                                title_elem = item.select_one(title_selector)
+                                if title_elem:
+                                    print(f"タイトル要素: {title_selector} で見つかりました")
+                                    break
+                            
+                            if title_elem:
+                                title = title_elem.text.strip()
+                                print(f"タイトル: {title}")
+                                link = title_elem.get("href")
+                                if link:
+                                    # 相対URLを絶対URLに変換
+                                    if link.startswith("/"):
+                                        # URLのドメイン部分を抽出
+                                        parsed_url = urlparse(url)
+                                        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+                                        full_url = f"{base_url}{link}"
+                                    else:
+                                        full_url = link
+                                    print(f"URL: {full_url}")
+                                    grants.append({"title": title, "url": full_url})
+                        
+                        # 助成金情報を5件以上見つけたらループを抜ける
+                        if len(grants) >= 5:
+                            print(f"✅ 十分な助成金情報が見つかりました: {len(grants)} 件")
+                            break
+                
+                # 助成金情報が見つかった場合
                 if grants:
-                    break
-        
-        # デバッグ情報
-        print(f"スクレイピング結果: {len(grants)} 件の助成金情報")
-        if not grants:
-            print(f"HTMLの内容: {response.text[:500]}...")  # 最初の500文字を表示
+                    print(f"✅ URL {url} から {len(grants)} 件の助成金情報を取得しました")
+                    return grants
             
-        return grants
-    except Exception as e:
-        print(f"❌ スクレイピングエラー: {e}")
-        return []
+            # 見つからなかった場合は次のURLを試す
+            else:
+                print(f"❌ URL {url} アクセス失敗 (ステータスコード: {response.status_code})")
+                
+        except Exception as e:
+            print(f"❌ URL {url} 処理エラー: {e}")
+    
+    # すべてのURLで失敗した場合
+    print("❌ すべてのURLでスクレイピングに失敗しました")
+    return []
 
 def evaluate_grant_with_gpt(title, url):
     prompt = f"""
@@ -219,54 +252,6 @@ def main():
             print(f"✅ {i}件目 スプレッドシート書き込み完了")
         except Exception as e:
             print(f"❌ スプレッドシート書き込みエラー: {e}")
-
-        # 各助成金情報をメッセージに追加
-        full_message += f"*{i}. {title}*\n"
-        full_message += f"・対象: *{target}*\n"
-        full_message += f"・優先度: *{priority}*\n"
-        full_message += f"・URL: {url}\n\n"
-
-    # メッセージが空でないことを確認してから送信
-    if full_message:
-        send_to_google_chat(full_message, WEBHOOK_URL)
-    else:
-        print("❌ 送信するメッセージがありません")
-        send_to_google_chat("助成金情報の評価結果はありませんでした。", WEBHOOK_URL)
-        target = target.group(1).strip() if target else "不明"
-        
-        reason = re.search(r"理由:?\s*(.+)", result)
-        reason = reason.group(1).strip() if reason else "不明"
-        
-        priority = re.search(r"申請優先度:?\s*(.+)", result)
-        priority = priority.group(1).strip() if priority else "不明"
-
-        try:
-            sheet.append_row([i, title, url, target, reason, priority])
-            print(f"✅ {i}件目 スプレッドシート書き込み完了")
-        except Exception as e:
-            print(f"❌ スプレッドシート書き込みエラー: {e}")
-
-        # 各助成金情報をメッセージに追加
-        full_message += f"*{i}. {title}*\n"
-        full_message += f"・対象: *{target}*\n"
-        full_message += f"・優先度: *{priority}*\n"
-        full_message += f"・URL: {url}\n\n"
-
-    # メッセージが空でないことを確認してから送信
-    if full_message:
-        send_to_google_chat(full_message, WEBHOOK_URL)
-    else:
-        print("❌ 送信するメッセージがありません")
-        send_to_google_chat("助成金情報の評価結果はありませんでした。", WEBHOOK_URL))
-        target = target.group(1).strip() if target else "不明"
-        
-        reason = re.search(r"理由:?\s*(.+)", result)
-        reason = reason.group(1).strip() if reason else "不明"
-        
-        priority = re.search(r"申請優先度:?\s*(.+)", result)
-        priority = priority.group(1).strip() if priority else "不明"
-
-        sheet.append_row([i, title, url, target, reason, priority])
 
         # 各助成金情報をメッセージに追加
         full_message += f"*{i}. {title}*\n"
