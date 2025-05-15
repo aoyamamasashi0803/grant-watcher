@@ -72,14 +72,40 @@ def evaluate_grant_with_gpt(title, url):
 
 def send_to_google_chat(message, webhook_url):
     headers = {"Content-Type": "application/json"}
-    payload = {"text": message}
+    
+    # カード形式のメッセージに変更（見やすくするため）
+    payload = {
+        "text": "📢 助成金支援制度評価レポート",
+        "cards": [
+            {
+                "header": {
+                    "title": "助成金支援制度評価レポート",
+                    "subtitle": f"更新日時: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                },
+                "sections": [
+                    {
+                        "widgets": [
+                            {
+                                "textParagraph": {
+                                    "text": message
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+    
     try:
         response = requests.post(webhook_url, headers=headers, json=payload)
         response.raise_for_status()
-        print("✅ Google Chatに通知しました。")
+        print(f"✅ Google Chatに通知しました。ステータスコード: {response.status_code}")
+        print(f"応答本文: {response.text}")
     except Exception as e:
         print(f"❌ Google Chat送信エラー: {e}")
-
+        print(f"リクエスト内容: {json.dumps(payload, ensure_ascii=False)}")
+        
 # --- メイン処理 ---
 def main():
     print("✅ 助成金情報取得開始")
@@ -91,32 +117,47 @@ def main():
     headers = ["No.", "タイトル", "URL", "対象かどうか", "理由", "申請優先度"]
     sheet.append_row(headers)
 
-    full_message = "📢 助成金支援制度評価レポート\n\n"
+    full_message = ""  # メッセージ内容を初期化
+    
+    if not grants:  # 助成金情報が取得できなかった場合
+        error_msg = "助成金情報が取得できませんでした。"
+        print(f"❌ {error_msg}")
+        send_to_google_chat(error_msg, WEBHOOK_URL)
+        return
+
     for i, grant in enumerate(grants[:5], start=1):  # ←本番運用は[:5]外して全件にしてOK
         title = grant["title"]
         url = grant["url"]
 
+        print(f"⏳ {i}件目 評価中...")
         result = evaluate_grant_with_gpt(title, url)
         print(f"✅ {i}件目 評価完了")
 
-        # GPT回答の分解
-        target = ""
-        reason = ""
-        priority = ""
-        for line in result.splitlines():
-            if "対象かどうか" in line:
-                target = line.split(":")[1].strip()
-            if "理由" in line:
-                reason = line.split(":")[1].strip()
-            if "申請優先度" in line:
-                priority = line.split(":")[1].strip()
+        # GPT回答の分解（正規表現を使ってより堅牢に）
+        import re
+        target = re.search(r"対象かどうか:?\s*(.+)", result)
+        target = target.group(1).strip() if target else "不明"
+        
+        reason = re.search(r"理由:?\s*(.+)", result)
+        reason = reason.group(1).strip() if reason else "不明"
+        
+        priority = re.search(r"申請優先度:?\s*(.+)", result)
+        priority = priority.group(1).strip() if priority else "不明"
 
         sheet.append_row([i, title, url, target, reason, priority])
 
-        full_message += f"【{i}. {title}】\n対象: {target}\n優先度: {priority}\n{url}\n\n"
+        # 各助成金情報をメッセージに追加
+        full_message += f"*{i}. {title}*\n"
+        full_message += f"・対象: *{target}*\n"
+        full_message += f"・優先度: *{priority}*\n"
+        full_message += f"・URL: {url}\n\n"
 
-    # Google Chatにまとめて通知
-    send_to_google_chat(full_message, WEBHOOK_URL)
-
+    # メッセージが空でないことを確認してから送信
+    if full_message:
+        send_to_google_chat(full_message, WEBHOOK_URL)
+    else:
+        print("❌ 送信するメッセージがありません")
+        send_to_google_chat("助成金情報の評価結果はありませんでした。", WEBHOOK_URL)
+        
 if __name__ == "__main__":
     main()
