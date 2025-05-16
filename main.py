@@ -51,32 +51,47 @@ def get_grant_data():
         {
             "title": "IT導入補助金2025（通常枠）", 
             "url": "https://it-shien.smrj.go.jp/", 
-            "description": "中小企業・小規模事業者向けにITツール導入を支援。業務効率化や売上向上に貢献するITツール導入費用の一部を補助（補助率1/2、最大450万円）。"
+            "description": "中小企業・小規模事業者向けにITツール導入を支援。業務効率化や売上向上に貢献するITツール導入費用の一部を補助。",
+            "deadline": "2025年6月16日(月) 17:00（1次締切）",
+            "amount": "5万円～450万円",
+            "ratio": "1/2（最低賃金近傍の事業者は2/3）"
         },
         {
             "title": "IT導入補助金2025（セキュリティ対策推進枠）", 
             "url": "https://it-shien.smrj.go.jp/security/", 
-            "description": "サイバーセキュリティ対策強化を目的としたITツール導入を支援。小規模事業者は補助率2/3、上限150万円まで補助。"
+            "description": "サイバーセキュリティ対策強化を目的としたITツール導入を支援。",
+            "deadline": "2025年6月16日(月) 17:00（1次締切）",
+            "amount": "5万円～150万円",
+            "ratio": "1/2（小規模事業者は2/3）"
         },
         {
             "title": "長野県プラス補助金（中小企業経営構造転換促進事業）", 
             "url": "https://www.pref.nagano.lg.jp/keieishien/corona/kouzou-tenkan.html", 
-            "description": "国の補助金に上乗せして支援。事業再構築や生産性向上に取り組む県内中小企業が対象。"
+            "description": "国の補助金に上乗せして支援。事業再構築や生産性向上に取り組む県内中小企業が対象。",
+            "deadline": "国の補助金採択後に申請可能（詳細は県HPで要確認）",
+            "amount": "国の補助金に上乗せ（最大2,000万円）",
+            "ratio": "国の補助金と合わせて最大8/10"
         },
         {
             "title": "長野県中小企業賃上げ・生産性向上サポート補助金", 
             "url": "https://www.pref.nagano.lg.jp/rodokoyo/seisanseisupport.html", 
-            "description": "業務改善と賃金引上げに取り組む中小企業を支援。国の業務改善助成金の上乗せ補助を実施。"
+            "description": "業務改善と賃金引上げに取り組む中小企業を支援。国の業務改善助成金の上乗せ補助を実施。",
+            "deadline": "令和7年4月30日まで（予算上限に達し次第終了）",
+            "amount": "国の助成金の1/2相当額（最大250万円）",
+            "ratio": "国の助成金と合わせて最大9/10"
         },
         {
             "title": "事業再構築補助金（第13回公募）", 
             "url": "https://jigyou-saikouchiku.go.jp/", 
-            "description": "ポストコロナ・ウィズコロナ時代の経済社会変化に対応するための新分野展開や業態転換等を支援。"
+            "description": "ポストコロナ・ウィズコロナ時代の経済社会変化に対応するための新分野展開や業態転換等を支援。",
+            "deadline": "申請受付開始日は現在調整中（最終公募）",
+            "amount": "最大1億円（枠によって異なる）",
+            "ratio": "1/2～3/4（企業規模や申請枠によって異なる）"
         }
     ]
     return grants
 
-def evaluate_grant_with_gpt(title, url, description):
+def evaluate_grant_with_gpt(title, url, description, deadline, amount, ratio):
     """助成金情報をGPTで評価"""
     prompt = f"""
 あなたは企業向け助成金アドバイザーです。
@@ -85,6 +100,9 @@ def evaluate_grant_with_gpt(title, url, description):
 【助成金名】{title}
 【詳細URL】{url}
 【概要】{description}
+【申請期限】{deadline}
+【助成金額】{amount}
+【補助割合】{ratio}
 
 回答形式は以下でお願いします：
 ---
@@ -144,7 +162,7 @@ def main():
     # スプレッドシート初期化
     try:
         sheet.clear()
-        headers = ["No.", "タイトル", "URL", "対象かどうか", "理由", "申請優先度"]
+        headers = ["No.", "タイトル", "URL", "申請期限", "助成金額", "補助割合", "対象かどうか", "理由", "申請優先度"]
         sheet.append_row(headers)
         print("✅ スプレッドシート初期化完了")
     except Exception as e:
@@ -160,9 +178,12 @@ def main():
         title = grant["title"]
         url = grant["url"]
         description = grant["description"]
+        deadline = grant["deadline"]
+        amount = grant["amount"]
+        ratio = grant["ratio"]
 
         print(f"⏳ {i}件目 評価中...")
-        result = evaluate_grant_with_gpt(title, url, description)
+        result = evaluate_grant_with_gpt(title, url, description, deadline, amount, ratio)
         print(f"✅ {i}件目 評価完了")
 
         # GPT回答の分解（正規表現を使って堅牢に）
@@ -176,7 +197,7 @@ def main():
         priority = priority.group(1).strip() if priority else "不明"
 
         try:
-            sheet.append_row([i, title, url, target, reason, priority])
+            sheet.append_row([i, title, url, deadline, amount, ratio, target, reason, priority])
             print(f"✅ {i}件目 スプレッドシート書き込み完了")
         except Exception as e:
             print(f"❌ スプレッドシート書き込みエラー: {e}")
@@ -185,6 +206,9 @@ def main():
         full_message += f"*{i}. {title}*\n"
         full_message += f"・対象: *{target}*\n"
         full_message += f"・優先度: *{priority}*\n"
+        full_message += f"・申請期限: {deadline}\n"
+        full_message += f"・助成金額: {amount}\n"
+        full_message += f"・補助割合: {ratio}\n"
         full_message += f"・理由: {reason}\n"
         full_message += f"・URL: {url}\n\n"
 
