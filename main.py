@@ -1,4 +1,23 @@
-def normalize_text(text):
+def generate_simple_title(original_title, index):
+    """タイトルが文字化けしているか不適切な場合に、シンプルなタイトルを生成する"""
+    # 文字化けや不適切な文字が含まれているかチェック
+    if re.search(r'[^\w\s\d\u3000-\u9FFF\u3040-\u309F\u30A0-\u30FF,.?!:;\-()[\]{}「」『』（）［］｛｝、。？！：；]', original_title):
+        # 主要なカテゴリに基づいてタイトルを割り当て
+        if "IT" in original_title or "導入" in original_title:
+            return f"IT導入補助金 (#{index})"
+        elif "事業再構築" in original_title or "再構築" in original_title:
+            return f"事業再構築補助金 (#{index})"
+        elif "長野県" in original_title and "プラス" in original_title:
+            return f"長野県プラス補助金 (#{index})"
+        elif "長野県" in original_title and ("賃上げ" in original_title or "生産性" in original_title):
+            return f"長野県中小企業賃上げ・生産性向上サポート補助金 (#{index})"
+        elif "セキュリティ" in original_title:
+            return f"IT導入補助金(セキュリティ対策推進枠) (#{index})"
+        else:
+            return f"助成金情報 (#{index})"
+    else:
+        # 問題なければそのまま返す
+        return original_titledef normalize_text(text):
     """テキストの正規化と文字化け防止処理"""
     if not text:
         return ""
@@ -556,22 +575,33 @@ def send_to_google_chat(message, webhook_url):
     current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
     
     # メッセージを短くまとめる
-    summarized_message = "📢 助成金支援制度評価レポート\n更新日時: " + current_time + "\n\n"
+    summarized_message = f"📢 助成金支援制度評価レポート\n更新日時: {current_time}\n\n"
     
     # メッセージを行ごとに分割
     lines = message.strip().split('\n\n')
+    grant_count = 0
     
     for i, grant_block in enumerate(lines):
         if not grant_block.strip():
             continue
             
+        grant_count += 1
         # 助成金ブロックの行を分割
         block_lines = grant_block.split('\n')
         if len(block_lines) < 2:
             continue
         
-        # タイトル行を抽出（最初の行）
-        title_line = block_lines[0]
+        # タイトル行を抽出・処理（最初の行）
+        title_line = block_lines[0].replace('*', '')
+        # タイトルの番号を取得
+        title_num = re.search(r'^([0-9]+)\.', title_line)
+        title_num = title_num.group(1) if title_num else str(grant_count)
+        
+        # タイトルテキストを抽出（番号の後の部分）
+        title_text = re.sub(r'^[0-9]+\.\s*', '', title_line).strip()
+        
+        # 文字化けしているタイトルを修正
+        safe_title = generate_simple_title(title_text, title_num)
         
         # 対象と優先度行を抽出（通常2行目と3行目）
         target_line = next((line for line in block_lines if '・対象:' in line), "・対象: 不明")
@@ -582,7 +612,7 @@ def send_to_google_chat(message, webhook_url):
         url_line = next((line for line in block_lines if '・URL:' in line), "")
         
         # 簡潔なメッセージに整形
-        summarized_message += f"{title_line}\n{target_line}\n{priority_line}\n{deadline_line}\n{url_line}\n\n"
+        summarized_message += f"{title_num}. {safe_title}\n{target_line}\n{priority_line}\n{deadline_line}\n{url_line}\n\n"
     
     # ペイロードの作成
     payload = {"text": summarized_message}
@@ -642,7 +672,11 @@ def main():
     full_message = ""
 
     for i, grant in enumerate(grants, start=1):
+        # タイトルの文字化けチェックと修正
         title = normalize_text(grant["title"])
+        # 必要に応じてシンプルなタイトルに置き換え
+        title = generate_simple_title(title, i)
+        
         url = grant["url"]
         description = normalize_text(grant.get("description", ""))
         deadline = normalize_text(grant.get("deadline", "要確認"))
