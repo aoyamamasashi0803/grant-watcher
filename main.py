@@ -1,10 +1,13 @@
+#!/usr/bin/env python
+# coding: utf-8
+
 import os
 import json
 import requests
 import openai
 import gspread
-import datetime  # datetime モジュールを追加
-import re  # 正規表現用のモジュールを追加
+import datetime
+import re
 from bs4 import BeautifulSoup
 from google.oauth2 import service_account
 from urllib.parse import urlparse
@@ -41,112 +44,47 @@ except Exception as e:
     print(f"❌ スプレッドシート接続失敗: {e}")
     exit(1)
 
-# --- 関数定義 ---
-def scrape_jnet21_grants():
-    # 複数の可能性のあるURLを試す
-    possible_urls = [
-        "https://j-net21.smrj.go.jp/snavi/articles?category%5B%5D=2",  # 補助金カテゴリのURL
-        "https://j-net21.smrj.go.jp/support/",
-        "https://j-net21.smrj.go.jp/snavi/support/",
-        "https://j-net21.smrj.go.jp/",  # ベースURL
+# --- 固定助成金情報 (長野県の情報通信業向け) ---
+def get_grant_data():
+    """長野県の情報通信業向けの補助金・助成金情報を取得する"""
+    grants = [
+        {
+            "title": "IT導入補助金2025（通常枠）", 
+            "url": "https://it-shien.smrj.go.jp/", 
+            "description": "中小企業・小規模事業者向けにITツール導入を支援。業務効率化や売上向上に貢献するITツール導入費用の一部を補助（補助率1/2、最大450万円）。"
+        },
+        {
+            "title": "IT導入補助金2025（セキュリティ対策推進枠）", 
+            "url": "https://it-shien.smrj.go.jp/security/", 
+            "description": "サイバーセキュリティ対策強化を目的としたITツール導入を支援。小規模事業者は補助率2/3、上限150万円まで補助。"
+        },
+        {
+            "title": "長野県プラス補助金（中小企業経営構造転換促進事業）", 
+            "url": "https://www.pref.nagano.lg.jp/keieishien/corona/kouzou-tenkan.html", 
+            "description": "国の補助金に上乗せして支援。事業再構築や生産性向上に取り組む県内中小企業が対象。"
+        },
+        {
+            "title": "長野県中小企業賃上げ・生産性向上サポート補助金", 
+            "url": "https://www.pref.nagano.lg.jp/rodokoyo/seisanseisupport.html", 
+            "description": "業務改善と賃金引上げに取り組む中小企業を支援。国の業務改善助成金の上乗せ補助を実施。"
+        },
+        {
+            "title": "事業再構築補助金（第13回公募）", 
+            "url": "https://jigyou-saikouchiku.go.jp/", 
+            "description": "ポストコロナ・ウィズコロナ時代の経済社会変化に対応するための新分野展開や業態転換等を支援。"
+        }
     ]
-    
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
-    
-    for url in possible_urls:
-        print(f"🔍 URL {url} にアクセス試行中...")
-        try:
-            response = requests.get(url, headers=headers, timeout=30)
-            if response.status_code == 200:
-                print(f"✅ URL {url} アクセス成功")
-                response.encoding = response.apparent_encoding
-                soup = BeautifulSoup(response.text, "html.parser")
-                
-                # デバッグ: HTML構造確認
-                print(f"ページタイトル: {soup.title.text if soup.title else 'タイトルなし'}")
-                
-                grants = []
-                # 選択子を複数パターン試す（サイト構造が変わっている可能性があるため）
-                selectors = [
-                    ".c-list__item",
-                    ".list-item",
-                    ".grant-item",
-                    ".support-list li",
-                    "article",
-                    ".entry",
-                    ".o-list__item",
-                    ".o-panel-list__item",
-                    ".o-block-list__item",
-                    "li.o-list__item",
-                    ".m-panel-article",
-                    ".m-block-article",
-                    "li"
-                ]
-                
-                # デバッグ: 各セレクタの結果出力
-                for selector in selectors:
-                    items = soup.select(selector)
-                    print(f"セレクタ '{selector}': {len(items)} 件")
-                
-                for selector in selectors:
-                    items = soup.select(selector)
-                    if items:
-                        print(f"✅ セレクタ '{selector}' で {len(items)} 件見つかりました")
-                        for item in items:
-                            # タイトルを探す複数パターン
-                            title_elem = None
-                            for title_selector in [".c-list__title a", "h3 a", "h2 a", ".title a", "a", ".m-block-article__title a", ".o-panel-article__title", ".m-panel-article__title", "dt a", ".m-article-title"]:
-                                title_elem = item.select_one(title_selector)
-                                if title_elem:
-                                    print(f"タイトル要素: {title_selector} で見つかりました")
-                                    break
-                            
-                            if title_elem:
-                                title = title_elem.text.strip()
-                                print(f"タイトル: {title}")
-                                link = title_elem.get("href")
-                                if link:
-                                    # 相対URLを絶対URLに変換
-                                    if link.startswith("/"):
-                                        # URLのドメイン部分を抽出
-                                        parsed_url = urlparse(url)
-                                        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
-                                        full_url = f"{base_url}{link}"
-                                    else:
-                                        full_url = link
-                                    print(f"URL: {full_url}")
-                                    grants.append({"title": title, "url": full_url})
-                        
-                        # 助成金情報を5件以上見つけたらループを抜ける
-                        if len(grants) >= 5:
-                            print(f"✅ 十分な助成金情報が見つかりました: {len(grants)} 件")
-                            break
-                
-                # 助成金情報が見つかった場合
-                if grants:
-                    print(f"✅ URL {url} から {len(grants)} 件の助成金情報を取得しました")
-                    return grants
-            
-            # 見つからなかった場合は次のURLを試す
-            else:
-                print(f"❌ URL {url} アクセス失敗 (ステータスコード: {response.status_code})")
-                
-        except Exception as e:
-            print(f"❌ URL {url} 処理エラー: {e}")
-    
-    # すべてのURLで失敗した場合
-    print("❌ すべてのURLでスクレイピングに失敗しました")
-    return []
+    return grants
 
-def evaluate_grant_with_gpt(title, url):
+def evaluate_grant_with_gpt(title, url, description):
+    """助成金情報をGPTで評価"""
     prompt = f"""
 あなたは企業向け助成金アドバイザーです。
 以下の助成金が、長野県塩尻市の情報通信業・従業員56名の中小企業にとって申請対象になるか、また申請優先度（高・中・低）を判定してください。
 
 【助成金名】{title}
 【詳細URL】{url}
+【概要】{description}
 
 回答形式は以下でお願いします：
 ---
@@ -165,6 +103,7 @@ def evaluate_grant_with_gpt(title, url):
         return f"❌ GPT評価エラー: {str(e)}"
 
 def send_to_google_chat(message, webhook_url):
+    """Google Chatに通知を送信"""
     if not message.strip():
         print("❌ 送信するメッセージが空です")
         message = "助成金情報を取得できませんでした。システム管理者に確認してください。"
@@ -199,20 +138,8 @@ def send_to_google_chat(message, webhook_url):
 # --- メイン処理 ---
 def main():
     print("✅ 助成金情報取得開始")
-    grants = scrape_jnet21_grants()
+    grants = get_grant_data()
     print(f"✅ 助成金件数: {len(grants)} 件")
-
-    # 助成金情報が取得できなかった場合、ダミーデータを使用（テスト用）
-    if not grants:
-        print("⚠️ 助成金情報が取得できませんでした。テスト用ダミーデータを使用します。")
-        grants = [
-            {"title": "補助金・助成金：「令和7年度 中小企業デジタル化支援補助金」", "url": "https://example.com/digital"},
-            {"title": "補助金・助成金：「事業再構築補助金（第10回）」", "url": "https://example.com/saikouchiku"},
-            {"title": "補助金・助成金：「ものづくり補助金 2025年度第1次公募」", "url": "https://example.com/monodukuri"},
-            {"title": "補助金・助成金：「小規模事業者持続化補助金」", "url": "https://example.com/jizokuka"},
-            {"title": "補助金・助成金：「IT導入補助金2025」", "url": "https://example.com/it"}
-        ]
-        print(f"✅ テスト用ダミーデータ: {len(grants)} 件")
 
     # スプレッドシート初期化
     try:
@@ -232,12 +159,13 @@ def main():
     for i, grant in enumerate(grants, start=1):
         title = grant["title"]
         url = grant["url"]
+        description = grant["description"]
 
         print(f"⏳ {i}件目 評価中...")
-        result = evaluate_grant_with_gpt(title, url)
+        result = evaluate_grant_with_gpt(title, url, description)
         print(f"✅ {i}件目 評価完了")
 
-        # GPT回答の分解（正規表現を使ってより堅牢に）
+        # GPT回答の分解（正規表現を使って堅牢に）
         target = re.search(r"対象かどうか:?\s*(.+)", result)
         target = target.group(1).strip() if target else "不明"
         
@@ -257,6 +185,7 @@ def main():
         full_message += f"*{i}. {title}*\n"
         full_message += f"・対象: *{target}*\n"
         full_message += f"・優先度: *{priority}*\n"
+        full_message += f"・理由: {reason}\n"
         full_message += f"・URL: {url}\n\n"
 
     # メッセージが空でないことを確認してから送信
