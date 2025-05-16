@@ -1,40 +1,4 @@
-def generate_simple_title(original_title, index):
-    """タイトルが文字化けしているか不適切な場合に、シンプルなタイトルを生成する"""
-    # 文字化けや不適切な文字が含まれているかチェック
-    if re.search(r'[^\w\s\d\u3000-\u9FFF\u3040-\u309F\u30A0-\u30FF,.?!:;\-()[\]{}「」『』（）［］｛｝、。？！：；]', original_title):
-        # 主要なカテゴリに基づいてタイトルを割り当て
-        if "IT" in original_title or "導入" in original_title:
-            return f"IT導入補助金 (#{index})"
-        elif "事業再構築" in original_title or "再構築" in original_title:
-            return f"事業再構築補助金 (#{index})"
-        elif "長野県" in original_title and "プラス" in original_title:
-            return f"長野県プラス補助金 (#{index})"
-        elif "長野県" in original_title and ("賃上げ" in original_title or "生産性" in original_title):
-            return f"長野県中小企業賃上げ・生産性向上サポート補助金 (#{index})"
-        elif "セキュリティ" in original_title:
-            return f"IT導入補助金(セキュリティ対策推進枠) (#{index})"
-        else:
-            return f"助成金情報 (#{index})"
-    else:
-        # 問題なければそのまま返す
-        return original_titledef normalize_text(text):
-    """テキストの正規化と文字化け防止処理"""
-    if not text:
-        return ""
-        
-    # 制御文字や特殊文字の除去
-    text = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', text)
-    
-    # 全角スペースを半角に変換
-    text = text.replace('\u3000', ' ')
-    
-    # 連続する空白を1つにまとめる
-    text = re.sub(r'\s+', ' ', text)
-    
-    # 前後の空白を削除
-    text = text.strip()
-    
-    return text#!/usr/bin/env python
+#!/usr/bin/env python
 # coding: utf-8
 
 import os
@@ -80,6 +44,48 @@ except Exception as e:
     print(f"❌ スプレッドシート接続失敗: {e}")
     exit(1)
 
+# --- ヘルパー関数 ---
+def normalize_text(text):
+    """テキストの正規化と文字化け防止処理"""
+    if not text:
+        return ""
+        
+    # 制御文字や特殊文字の除去
+    text = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', text)
+    
+    # 全角スペースを半角に変換
+    text = text.replace('\u3000', ' ')
+    
+    # 連続する空白を1つにまとめる
+    text = re.sub(r'\s+', ' ', text)
+    
+    # 前後の空白を削除
+    text = text.strip()
+    
+    return text
+
+def generate_simple_title(original_title, index):
+    """タイトルが文字化けしているか不適切な場合に、シンプルなタイトルを生成する"""
+    # 文字化けや不適切な文字が含まれているかチェック
+    if re.search(r'[^\w\s\d\u3000-\u9FFF\u3040-\u309F\u30A0-\u30FF,.?!:;\-()[\]{}「」『』（）［］｛｝、。？！：；]', original_title):
+        # 主要なカテゴリに基づいてタイトルを割り当て
+        if "IT" in original_title or "導入" in original_title:
+            return f"IT導入補助金 (#{index})"
+        elif "事業再構築" in original_title or "再構築" in original_title:
+            return f"事業再構築補助金 (#{index})"
+        elif "長野県" in original_title and "プラス" in original_title:
+            return f"長野県プラス補助金 (#{index})"
+        elif "長野県" in original_title and ("賃上げ" in original_title or "生産性" in original_title):
+            return f"長野県中小企業賃上げ・生産性向上サポート補助金 (#{index})"
+        elif "セキュリティ" in original_title:
+            return f"IT導入補助金(セキュリティ対策推進枠) (#{index})"
+        else:
+            return f"助成金情報 (#{index})"
+    else:
+        # 問題なければそのまま返す
+        return original_title
+
+# --- スクレイピング関数 ---
 def scrape_jnet21_grants():
     """J-Net21から長野県の補助金・助成金情報を取得する"""
     base_url = "https://j-net21.smrj.go.jp/snavi/articles"
@@ -133,7 +139,7 @@ def scrape_jnet21_grants():
                                                                                  '島根', '岡山', '広島', '山口', '徳島', 
                                                                                  '香川', '愛媛', '高知', '福岡', '佐賀', 
                                                                                  '長崎', '熊本', '大分', '宮崎', '鹿児島', 
-                                                                                 '沖縄'])
+                                                                                 '沖縄']) and '長野' not in title
                         
                         # 全国対象または長野県関連の補助金のみ抽出
                         if is_nagano_related or is_national:
@@ -255,6 +261,7 @@ def scrape_grant_details(url):
     
     return details
 
+# --- 全国向け助成金情報取得関数 ---
 def get_national_grants():
     """全国向けの主要助成金情報をWebサイトから動的に取得する"""
     national_grants = []
@@ -388,6 +395,9 @@ def get_national_grants():
         
         for url in nagano_urls:
             try:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
                 response = requests.get(url, headers=headers, timeout=30)
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, "html.parser")
@@ -481,20 +491,11 @@ def get_national_grants():
     
     return national_grants
 
+# --- フィルタリングとGPT評価関数 ---
 def filter_grants_for_target_business(grants, location="長野県塩尻市", industry="情報通信業", employees=56):
     """対象企業に適した助成金情報にフィルタリングする"""
     # 情報通信業向け助成金に関連するキーワード
     it_keywords = ['IT', 'システム', 'デジタル', '情報通信', 'DX', 'セキュリティ', 'アプリ', 'ソフトウェア', 'ICT', 'クラウド', 'AI', 'IoT']
-    
-    # 業種フィルタリング用クエリの構築
-    filter_query = f"""
-以下の助成金情報が、{location}の{industry}（従業員{employees}名の中小企業）に適用可能かどうかを判断してください。
-適用可能な場合は「はい」、そうでない場合は「いいえ」と回答してください。
-
-{json.dumps(grants, ensure_ascii=False, indent=2)}
-
-回答形式: はい/いいえ
-"""
     
     # 一次フィルタリング（プログラム的にフィルタリング）
     filtered_grants = []
@@ -504,19 +505,19 @@ def filter_grants_for_target_business(grants, location="長野県塩尻市", ind
         include = True
         
         title = grant["title"].lower()
-        desc = grant["description"].lower() if "description" in grant else ""
+        desc = grant.get("description", "").lower()
         
         # 特定の地域限定で、かつ対象地域でない場合は除外
         if any(prefecture in title for prefecture in ['北海道', '青森', '岩手', '宮城', '秋田', 
-                                                 '山形', '福島', '茨城', '栃木', '群馬', 
-                                                 '埼玉', '千葉', '東京', '神奈川', '新潟', 
-                                                 '富山', '石川', '福井', '山梨', '岐阜', 
-                                                 '静岡', '愛知', '三重', '滋賀', '京都', 
-                                                 '大阪', '兵庫', '奈良', '和歌山', '鳥取', 
-                                                 '島根', '岡山', '広島', '山口', '徳島', 
-                                                 '香川', '愛媛', '高知', '福岡', '佐賀', 
-                                                 '長崎', '熊本', '大分', '宮崎', '鹿児島', 
-                                                 '沖縄']) and '長野' not in title:
+                                               '山形', '福島', '茨城', '栃木', '群馬', 
+                                               '埼玉', '千葉', '東京', '神奈川', '新潟', 
+                                               '富山', '石川', '福井', '山梨', '岐阜', 
+                                               '静岡', '愛知', '三重', '滋賀', '京都', 
+                                               '大阪', '兵庫', '奈良', '和歌山', '鳥取', 
+                                               '島根', '岡山', '広島', '山口', '徳島', 
+                                               '香川', '愛媛', '高知', '福岡', '佐賀', 
+                                               '長崎', '熊本', '大分', '宮崎', '鹿児島', 
+                                               '沖縄']) and '長野' not in title:
             include = False
         
         # 特定の業種限定で、情報通信業が対象外の場合は除外
@@ -559,6 +560,7 @@ def evaluate_grant_with_gpt(title, url, description, deadline, amount, ratio):
     except Exception as e:
         return f"❌ GPT評価エラー: {str(e)}"
 
+# --- Google Chat通知関数 ---
 def send_to_google_chat(message, webhook_url):
     """Google Chatに通知を送信"""
     if not message.strip():
@@ -635,7 +637,7 @@ def send_to_google_chat(message, webhook_url):
             print(f"応答本文: {response.text}")
     except Exception as e:
         print(f"❌ Google Chat送信エラー: {e}")
-        print(f"リクエスト内容: {encoded_payload[:200].decode('utf-8')}...")  # 最初の200文字だけ表示
+        print(f"リクエスト内容: {encoded_payload[:200].decode('utf-8')}...")
 
 # --- メイン処理 ---
 def main():
