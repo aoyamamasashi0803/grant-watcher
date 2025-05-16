@@ -555,12 +555,37 @@ def send_to_google_chat(message, webhook_url):
     
     current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
     
-    # 文字化け防止のための前処理
-    # 特殊文字や制御文字を除去
-    clean_message = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', message)
+    # メッセージを短くまとめる
+    summarized_message = "📢 助成金支援制度評価レポート\n更新日時: " + current_time + "\n\n"
     
-    # シンプルなテキストメッセージ形式
-    payload = {"text": f"📢 助成金支援制度評価レポート\n更新日時: {current_time}\n\n{clean_message}"}
+    # メッセージを行ごとに分割
+    lines = message.strip().split('\n\n')
+    
+    for i, grant_block in enumerate(lines):
+        if not grant_block.strip():
+            continue
+            
+        # 助成金ブロックの行を分割
+        block_lines = grant_block.split('\n')
+        if len(block_lines) < 2:
+            continue
+        
+        # タイトル行を抽出（最初の行）
+        title_line = block_lines[0]
+        
+        # 対象と優先度行を抽出（通常2行目と3行目）
+        target_line = next((line for line in block_lines if '・対象:' in line), "・対象: 不明")
+        priority_line = next((line for line in block_lines if '・優先度:' in line), "・優先度: 不明")
+        deadline_line = next((line for line in block_lines if '・申請期限:' in line), "・申請期限: 要確認")
+        
+        # URL行を抽出（通常最後の行）
+        url_line = next((line for line in block_lines if '・URL:' in line), "")
+        
+        # 簡潔なメッセージに整形
+        summarized_message += f"{title_line}\n{target_line}\n{priority_line}\n{deadline_line}\n{url_line}\n\n"
+    
+    # ペイロードの作成
+    payload = {"text": summarized_message}
     
     try:
         print(f"⏳ Google Chatに送信中... ({webhook_url[:15]}...)")
@@ -649,9 +674,9 @@ def main():
         full_message += f"・対象: *{target}*\n"
         full_message += f"・優先度: *{priority}*\n"
         full_message += f"・申請期限: {deadline}\n"
-        full_message += f"・助成金額: {amount}\n"
-        full_message += f"・補助割合: {ratio}\n"
-        full_message += f"・理由: {reason}\n"
+        # 長すぎる説明文は簡潔にする
+        short_reason = reason[:100] + "..." if len(reason) > 100 else reason
+        full_message += f"・理由: {short_reason}\n"
         full_message += f"・URL: {url}\n\n"
 
     # メッセージが空でないことを確認してから送信
