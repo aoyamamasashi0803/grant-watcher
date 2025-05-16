@@ -1,4 +1,21 @@
-#!/usr/bin/env python
+def normalize_text(text):
+    """テキストの正規化と文字化け防止処理"""
+    if not text:
+        return ""
+        
+    # 制御文字や特殊文字の除去
+    text = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', text)
+    
+    # 全角スペースを半角に変換
+    text = text.replace('\u3000', ' ')
+    
+    # 連続する空白を1つにまとめる
+    text = re.sub(r'\s+', ' ', text)
+    
+    # 前後の空白を削除
+    text = text.strip()
+    
+    return text#!/usr/bin/env python
 # coding: utf-8
 
 import os
@@ -534,16 +551,25 @@ def send_to_google_chat(message, webhook_url):
         print("❌ 無効なwebhook URLです")
         return
     
-    headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json; charset=UTF-8"}
     
     current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
     
+    # 文字化け防止のための前処理
+    # 特殊文字や制御文字を除去
+    clean_message = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', message)
+    
     # シンプルなテキストメッセージ形式
-    payload = {"text": f"📢 助成金支援制度評価レポート\n更新日時: {current_time}\n\n{message}"}
+    payload = {"text": f"📢 助成金支援制度評価レポート\n更新日時: {current_time}\n\n{clean_message}"}
     
     try:
         print(f"⏳ Google Chatに送信中... ({webhook_url[:15]}...)")
-        response = requests.post(webhook_url, headers=headers, json=payload)
+        encoded_payload = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+        response = requests.post(
+            webhook_url, 
+            headers=headers, 
+            data=encoded_payload
+        )
         print(f"応答ステータスコード: {response.status_code}")
         print(f"応答本文: {response.text[:100]}")  # 最初の100文字だけ表示
         
@@ -554,7 +580,7 @@ def send_to_google_chat(message, webhook_url):
             print(f"応答本文: {response.text}")
     except Exception as e:
         print(f"❌ Google Chat送信エラー: {e}")
-        print(f"リクエスト内容: {json.dumps(payload, ensure_ascii=False)[:200]}...")  # 最初の200文字だけ表示
+        print(f"リクエスト内容: {encoded_payload[:200].decode('utf-8')}...")  # 最初の200文字だけ表示
 
 # --- メイン処理 ---
 def main():
@@ -591,12 +617,12 @@ def main():
     full_message = ""
 
     for i, grant in enumerate(grants, start=1):
-        title = grant["title"]
+        title = normalize_text(grant["title"])
         url = grant["url"]
-        description = grant.get("description", "")
-        deadline = grant.get("deadline", "要確認")
-        amount = grant.get("amount", "要確認")
-        ratio = grant.get("ratio", "要確認")
+        description = normalize_text(grant.get("description", ""))
+        deadline = normalize_text(grant.get("deadline", "要確認"))
+        amount = normalize_text(grant.get("amount", "要確認"))
+        ratio = normalize_text(grant.get("ratio", "要確認"))
 
         print(f"⏳ {i}件目 評価中...")
         result = evaluate_grant_with_gpt(title, url, description, deadline, amount, ratio)
@@ -604,13 +630,13 @@ def main():
 
         # GPT回答の分解（正規表現を使って堅牢に）
         target = re.search(r"対象かどうか:?\s*(.+)", result)
-        target = target.group(1).strip() if target else "不明"
+        target = normalize_text(target.group(1).strip() if target else "不明")
         
         reason = re.search(r"理由:?\s*(.+)", result)
-        reason = reason.group(1).strip() if reason else "不明"
+        reason = normalize_text(reason.group(1).strip() if reason else "不明")
         
         priority = re.search(r"申請優先度:?\s*(.+)", result)
-        priority = priority.group(1).strip() if priority else "不明"
+        priority = normalize_text(priority.group(1).strip() if priority else "不明")
 
         try:
             sheet.append_row([i, title, url, deadline, amount, ratio, target, reason, priority])
