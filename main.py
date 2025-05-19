@@ -493,7 +493,7 @@ def get_national_grants():
 
 # --- 追加情報ソース関数 ---
 def scrape_additional_sources():
-    """追加の情報ソースから助成金情報を取得する"""
+    """追加の情報ソースから助成金情報を取得する（改善版）"""
     additional_grants = []
     previous_grants = 0
     
@@ -510,17 +510,17 @@ def scrape_additional_sources():
             soup = BeautifulSoup(response.text, "html.parser")
             
             # 補助金・助成金の一覧を取得
-            subsidy_items = soup.select(".subsidy-item") or soup.select(".list_subsidy li")
+            subsidy_items = soup.select(".subsidy-item") or soup.select(".list_subsidy li") or soup.select(".contents-list li")
             
             for item in subsidy_items:
-                title_elem = item.select_one(".subsidy-item-title") or item.select_one("h3") or item.select_one("a")
+                title_elem = item.select_one(".subsidy-item-title") or item.select_one("h3") or item.select_one("a") or item.select_one(".title")
                 if not title_elem:
                     continue
                 
                 title = title_elem.text.strip()
                 
                 # URLを取得
-                link_elem = title_elem if title_elem.name == "a" else title_elem.find("a")
+                link_elem = title_elem if title_elem.name == "a" else title_elem.find("a") or item.find("a")
                 if not link_elem or not link_elem.get("href"):
                     continue
                     
@@ -528,17 +528,47 @@ def scrape_additional_sources():
                 if not url.startswith("http"):
                     url = urljoin("https://mirasapo-plus.go.jp", url)
                 
-                # 詳細情報を取得
-                description = ""
-                desc_elem = item.select_one(".subsidy-item-description") or item.select_one("p")
-                if desc_elem:
-                    description = desc_elem.text.strip()
+                # 詳細ページの情報を取得してみる
+                try:
+                    details = scrape_grant_details(url)
+                    description = details.get("description", "")
+                    deadline = details.get("deadline", "")
+                    amount = details.get("amount", "")
+                    ratio = details.get("ratio", "")
+                except:
+                    # 詳細ページの取得に失敗した場合は、リスト内の情報だけで進める
+                    description = ""
+                    deadline = ""
+                    amount = ""
+                    ratio = ""
+                
+                # リスト内の情報を取得（詳細ページの取得に失敗した場合の代替情報）
+                if not description:
+                    desc_elem = item.select_one(".subsidy-item-description") or item.select_one("p") or item.select_one(".text")
+                    if desc_elem:
+                        description = desc_elem.text.strip()
                 
                 # 締め切りを取得
-                deadline = "要確認"
-                deadline_elem = item.select_one(".subsidy-item-deadline") or item.select_one(".date")
-                if deadline_elem:
-                    deadline = deadline_elem.text.strip()
+                if not deadline:
+                    deadline_elem = item.select_one(".subsidy-item-deadline") or item.select_one(".date") or item.select_one(".period")
+                    if deadline_elem:
+                        deadline = deadline_elem.text.strip()
+                
+                # 金額情報を取得
+                if not amount:
+                    amount_elem = item.select_one(".subsidy-item-amount") or item.select_one(".money") or item.select_one(".price")
+                    if amount_elem:
+                        amount = amount_elem.text.strip()
+                
+                # 詳細情報が取得できなかった場合のフォールバック
+                if not description:
+                    description = f"{title}に関する補助金・助成金制度"
+                if not deadline:
+                    deadline = "詳細はWebサイトで確認"
+                if not amount:
+                    amount = "詳細はWebサイトで確認"
+                if not ratio:
+                    ratio = "詳細はWebサイトで確認"
                 
                 # 助成金情報を追加
                 additional_grants.append({
@@ -547,58 +577,95 @@ def scrape_additional_sources():
                     "date": datetime.datetime.now().strftime('%Y年%m月%d日'),
                     "description": description,
                     "deadline": deadline,
-                    "amount": "詳細はWebサイトで確認",
-                    "ratio": "詳細はWebサイトで確認"
+                    "amount": amount,
+                    "ratio": ratio
                 })
             
             print(f"✅ ミラサポplusから{len(additional_grants)}件の助成金情報を取得しました")
     except Exception as e:
         print(f"❌ ミラサポplus情報取得エラー: {e}")
     
-    # 経済産業省の補助金総合サイトから情報取得
+    # 経済産業省の補助金総合サイトから情報取得 - 改善版
     try:
         print("🔍 経済産業省の補助金情報を取得中...")
-        meti_url = "https://www.meti.go.jp/policy/hojyokin/index.html"
+        meti_urls = [
+            "https://www.meti.go.jp/policy/hojyokin/index.html",
+            "https://www.meti.go.jp/information/publicoffer/kobo.html"  # 公募情報のページも追加
+        ]
+        
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         
-        response = requests.get(meti_url, headers=headers, timeout=30)
-        if response.status_code == 200:
-            response.encoding = 'utf-8'  # 経産省サイトは文字コード指定が必要な場合がある
-            soup = BeautifulSoup(response.text, "html.parser")
-            
-            # 補助金・助成金の一覧を取得（経産省サイトの構造に合わせて調整）
-            subsidy_links = soup.select("a[href*='hojyo']") or soup.select("a[href*='subsidy']") or soup.select(".subsidy")
-            previous_grants = len(additional_grants)
-            
-            for link in subsidy_links:
-                title = link.text.strip()
-                if not title or len(title) < 5:  # 短すぎるタイトルは除外
-                    continue
-                
-                url = link.get("href")
-                if not url:
-                    continue
+        previous_grants = len(additional_grants)
+        
+        for meti_url in meti_urls:
+            try:
+                response = requests.get(meti_url, headers=headers, timeout=30)
+                if response.status_code == 200:
+                    response.encoding = 'utf-8'  # 経産省サイトは文字コード指定が必要な場合がある
+                    soup = BeautifulSoup(response.text, "html.parser")
                     
-                if not url.startswith("http"):
-                    url = urljoin("https://www.meti.go.jp", url)
-                
-                # 助成金情報を追加
-                additional_grants.append({
-                    "title": title,
-                    "url": url,
-                    "date": datetime.datetime.now().strftime('%Y年%m月%d日'),
-                    "description": "経済産業省の助成金・補助金制度",
-                    "deadline": "詳細はWebサイトで確認",
-                    "amount": "詳細はWebサイトで確認",
-                    "ratio": "詳細はWebサイトで確認"
-                })
-            
-            print(f"✅ 経済産業省から{len(additional_grants) - previous_grants}件の助成金情報を取得しました")
+                    # 補助金・助成金の一覧を取得（経産省サイトの構造に合わせて調整）
+                    subsidy_links = soup.select("a[href*='hojyo']") or soup.select("a[href*='subsidy']") or soup.select("a[href*='kobo']") or soup.select(".subsidy") or soup.select(".news-list a")
+                    
+                    for link in subsidy_links:
+                        title = link.text.strip()
+                        if not title or len(title) < 5:  # 短すぎるタイトルは除外
+                            continue
+                        
+                        # 助成金・補助金に関連するキーワードが含まれるものだけを対象にする
+                        if not any(keyword in title.lower() for keyword in ['補助', '助成', '支援', '給付', '交付', '公募', '募集']):
+                            continue
+                        
+                        url = link.get("href")
+                        if not url:
+                            continue
+                            
+                        if not url.startswith("http"):
+                            url = urljoin("https://www.meti.go.jp", url)
+                        
+                        # 詳細ページの情報を取得してみる
+                        try:
+                            details = scrape_grant_details(url)
+                            description = details.get("description", "")
+                            deadline = details.get("deadline", "")
+                            amount = details.get("amount", "")
+                            ratio = details.get("ratio", "")
+                        except:
+                            # 詳細ページの取得に失敗した場合
+                            description = "経済産業省の助成金・補助金制度"
+                            deadline = "詳細はWebサイトで確認"
+                            amount = "詳細はWebサイトで確認"
+                            ratio = "詳細はWebサイトで確認"
+                        
+                        # 詳細情報が取得できなかった場合のフォールバック
+                        if not description:
+                            description = "経済産業省の助成金・補助金制度"
+                        if not deadline:
+                            deadline = "詳細はWebサイトで確認"
+                        if not amount:
+                            amount = "詳細はWebサイトで確認"
+                        if not ratio:
+                            ratio = "詳細はWebサイトで確認"
+                        
+                        # 助成金情報を追加
+                        additional_grants.append({
+                            "title": title,
+                            "url": url,
+                            "date": datetime.datetime.now().strftime('%Y年%m月%d日'),
+                            "description": description,
+                            "deadline": deadline,
+                            "amount": amount,
+                            "ratio": ratio
+                        })
+            except Exception as e:
+                print(f"❌ 経済産業省情報取得エラー ({meti_url}): {e}")
+        
+        print(f"✅ 経済産業省から{len(additional_grants) - previous_grants}件の助成金情報を取得しました")
     except Exception as e:
         print(f"❌ 経済産業省情報取得エラー: {e}")
-    
+        
     # GビズIDポータルから助成金情報を取得
     try:
         print("🔍 GビズIDポータルの情報を取得中...")
@@ -613,17 +680,17 @@ def scrape_additional_sources():
             previous_grants = len(additional_grants)
             
             # 補助金・助成金の一覧を取得
-            subsidy_items = soup.select(".subsidy-item") or soup.select(".subsidy-list li")
+            subsidy_items = soup.select(".subsidy-item") or soup.select(".subsidy-list li") or soup.select("li.subsidy") or soup.select("div.subsidy")
             
             for item in subsidy_items:
-                title_elem = item.select_one(".subsidy-title") or item.select_one("h3") or item.select_one("strong")
+                title_elem = item.select_one(".subsidy-title") or item.select_one("h3") or item.select_one("strong") or item.select_one("a")
                 if not title_elem:
                     continue
                 
                 title = title_elem.text.strip()
                 
                 # URLを取得
-                link_elem = item.select_one("a")
+                link_elem = item.select_one("a") or (title_elem if title_elem.name == "a" else None)
                 if not link_elem or not link_elem.get("href"):
                     continue
                     
@@ -631,11 +698,47 @@ def scrape_additional_sources():
                 if not url.startswith("http"):
                     url = urljoin("https://gbiz-id.go.jp", url)
                 
-                # 詳細情報を取得
-                description = ""
-                desc_elem = item.select_one(".subsidy-description") or item.select_one("p")
-                if desc_elem:
-                    description = desc_elem.text.strip()
+                # 詳細ページの情報を取得してみる
+                try:
+                    details = scrape_grant_details(url)
+                    description = details.get("description", "")
+                    deadline = details.get("deadline", "")
+                    amount = details.get("amount", "")
+                    ratio = details.get("ratio", "")
+                except:
+                    # 詳細ページの取得に失敗した場合
+                    description = ""
+                    deadline = ""
+                    amount = ""
+                    ratio = ""
+                
+                # リスト内の情報を取得
+                if not description:
+                    desc_elem = item.select_one(".subsidy-description") or item.select_one("p") or item.select_one(".description")
+                    if desc_elem:
+                        description = desc_elem.text.strip()
+                
+                # 締め切りを取得
+                if not deadline:
+                    deadline_elem = item.select_one(".deadline") or item.select_one(".subsidy-deadline") or item.select_one(".date")
+                    if deadline_elem:
+                        deadline = deadline_elem.text.strip()
+                
+                # 金額情報を取得
+                if not amount:
+                    amount_elem = item.select_one(".subsidy-amount") or item.select_one(".amount")
+                    if amount_elem:
+                        amount = amount_elem.text.strip()
+                
+                # 詳細情報が取得できなかった場合のフォールバック
+                if not description:
+                    description = f"GビズID対応の{title}に関する助成金制度"
+                if not deadline:
+                    deadline = "詳細はWebサイトで確認"
+                if not amount:
+                    amount = "詳細はWebサイトで確認"
+                if not ratio:
+                    ratio = "詳細はWebサイトで確認"
                 
                 # 助成金情報を追加
                 additional_grants.append({
@@ -643,9 +746,9 @@ def scrape_additional_sources():
                     "url": url,
                     "date": datetime.datetime.now().strftime('%Y年%m月%d日'),
                     "description": description,
-                    "deadline": "詳細はWebサイトで確認",
-                    "amount": "詳細はWebサイトで確認",
-                    "ratio": "詳細はWebサイトで確認"
+                    "deadline": deadline,
+                    "amount": amount,
+                    "ratio": ratio
                 })
             
             print(f"✅ GビズIDポータルから{len(additional_grants) - previous_grants}件の助成金情報を取得しました")
@@ -655,124 +758,260 @@ def scrape_additional_sources():
     # 長野県中小企業振興センターの情報取得
     try:
         print("🔍 長野県中小企業振興センターの情報を取得中...")
-        nagano_center_url = "https://www.nice-nagano.or.jp/topics/"
+        nagano_center_urls = [
+            "https://www.nice-nagano.or.jp/topics/",
+            "https://www.nice-nagano.or.jp/business/"  # ビジネス支援情報も追加
+        ]
+        
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         
-        response = requests.get(nagano_center_url, headers=headers, timeout=30)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, "html.parser")
-            previous_grants = len(additional_grants)
-            
-            # 補助金・助成金の一覧を取得（サイト構造に合わせて調整）
-            subsidy_items = soup.select(".topics-list li") or soup.select(".news-list li")
-            
-            for item in subsidy_items:
-                # 補助金・助成金に関連する項目のみを抽出
-                item_text = item.text.lower()
-                if not any(keyword in item_text for keyword in ['補助', '助成', '支援金', '給付金']):
-                    continue
-                
-                title_elem = item.select_one("h3") or item.select_one("h4") or item.select_one("a") or item.select_one("strong")
-                if not title_elem:
-                    continue
-                
-                title = title_elem.text.strip()
-                
-                # URLを取得
-                link_elem = title_elem if title_elem.name == "a" else item.select_one("a")
-                if not link_elem or not link_elem.get("href"):
-                    continue
+        previous_grants = len(additional_grants)
+        
+        for nagano_center_url in nagano_center_urls:
+            try:
+                response = requests.get(nagano_center_url, headers=headers, timeout=30)
+                if response.status_code == 200:
+                    soup = BeautifulSoup(response.text, "html.parser")
                     
-                url = link_elem.get("href")
-                if not url.startswith("http"):
-                    url = urljoin("https://www.nice-nagano.or.jp", url)
-                
-                # 詳細情報を取得
-                description = item.text.strip()
-                if title in description:
-                    description = description.replace(title, "").strip()
-                
-                # 日付を抽出
-                date_elem = item.select_one(".date") or item.select_one("time")
-                date_text = date_elem.text.strip() if date_elem else ""
-                
-                # 締め切りを抽出
-                deadline_match = re.search(r'([0-9]{4}年[0-9]{1,2}月[0-9]{1,2}日).*(締切|締め切り|〆切)', description)
-                deadline = deadline_match.group(1) if deadline_match else "詳細はWebサイトで確認"
-                
-                # 助成金情報を追加
-                additional_grants.append({
-                    "title": title,
-                    "url": url,
-                    "date": date_text if date_text else datetime.datetime.now().strftime('%Y年%m月%d日'),
-                    "description": description[:200] + "..." if len(description) > 200 else description,
-                    "deadline": deadline,
-                    "amount": "詳細はWebサイトで確認",
-                    "ratio": "詳細はWebサイトで確認"
-                })
-            
-            print(f"✅ 長野県中小企業振興センターから{len(additional_grants) - previous_grants}件の助成金情報を取得しました")
+                    # 補助金・助成金の一覧を取得（サイト構造に合わせて調整）
+                    subsidy_items = soup.select(".topics-list li") or soup.select(".news-list li") or soup.select("article") or soup.select(".post")
+                    
+                    for item in subsidy_items:
+                        # 補助金・助成金に関連する項目のみを抽出
+                        item_text = item.text.lower()
+                        if not any(keyword in item_text for keyword in ['補助', '助成', '支援金', '給付金', '助金']):
+                            continue
+                        
+                        title_elem = item.select_one("h3") or item.select_one("h4") or item.select_one("a") or item.select_one("strong") or item.select_one(".title")
+                        if not title_elem:
+                            continue
+                        
+                        title = title_elem.text.strip()
+                        
+                        # URLを取得
+                        link_elem = title_elem if title_elem.name == "a" else item.select_one("a")
+                        if not link_elem or not link_elem.get("href"):
+                            continue
+                            
+                        url = link_elem.get("href")
+                        if not url.startswith("http"):
+                            url = urljoin("https://www.nice-nagano.or.jp", url)
+                        
+                        # 詳細情報を取得
+                        description = item.text.strip()
+                        if title in description:
+                            description = description.replace(title, "").strip()
+                        
+                        # 日付を抽出
+                        date_elem = item.select_one(".date") or item.select_one("time") or item.select_one(".publish-date")
+                        date_text = date_elem.text.strip() if date_elem else ""
+                        
+                        # 締め切りを抽出（詳細ページから取得を試みる）
+                        try:
+                            details = scrape_grant_details(url)
+                            detail_description = details.get("description", "")
+                            if detail_description:
+                                description = detail_description  # 詳細ページからの説明を使用
+                            
+                            deadline = details.get("deadline", "")
+                            amount = details.get("amount", "")
+                            ratio = details.get("ratio", "")
+                        except:
+                            # 詳細ページの取得に失敗した場合
+                            deadline = ""
+                            amount = ""
+                            ratio = ""
+                        
+                        # リスト内のテキストから締め切りを探す（詳細ページから取得できなかった場合）
+                        if not deadline:
+                            deadline_match = re.search(r'([0-9]{4}年[0-9]{1,2}月[0-9]{1,2}日).*(締切|締め切り|〆切|まで)', description)
+                            if deadline_match:
+                                deadline = deadline_match.group(1)
+                            else:
+                                deadline = "詳細はWebサイトで確認"
+                        
+                        # 詳細情報が取得できなかった場合のフォールバック
+                        if not amount:
+                            amount = "詳細はWebサイトで確認"
+                        if not ratio:
+                            ratio = "詳細はWebサイトで確認"
+                        
+                        # 助成金情報を追加
+                        additional_grants.append({
+                            "title": title,
+                            "url": url,
+                            "date": date_text if date_text else datetime.datetime.now().strftime('%Y年%m月%d日'),
+                            "description": description[:200] + "..." if len(description) > 200 else description,
+                            "deadline": deadline,
+                            "amount": amount,
+                            "ratio": ratio
+                        })
+            except Exception as e:
+                print(f"❌ 長野県中小企業振興センター情報取得エラー ({nagano_center_url}): {e}")
+        
+        print(f"✅ 長野県中小企業振興センターから{len(additional_grants) - previous_grants}件の助成金情報を取得しました")
     except Exception as e:
         print(f"❌ 長野県中小企業振興センター情報取得エラー: {e}")
     
     # 日本商工会議所の情報取得
     try:
         print("🔍 日本商工会議所の助成金情報を取得中...")
-        jcci_url = "https://www.jcci.or.jp/news/"
+        jcci_urls = [
+            "https://www.jcci.or.jp/news/",
+            "https://www.jcci.or.jp/sme/"  # 中小企業支援情報も追加
+        ]
+        
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         
-        response = requests.get(jcci_url, headers=headers, timeout=30)
+        previous_grants = len(additional_grants)
+        
+        for jcci_url in jcci_urls:
+            try:
+                response = requests.get(jcci_url, headers=headers, timeout=30)
+                if response.status_code == 200:
+                    soup = BeautifulSoup(response.text, "html.parser")
+                    
+                    # ニュース一覧から補助金・助成金関連の情報を取得
+                    news_items = soup.select(".news-list li") or soup.select(".news-item") or soup.select("article") or soup.select(".post")
+                    
+                    for item in news_items:
+                        # 補助金・助成金に関連する項目のみを抽出
+                        item_text = item.text.lower()
+                        if not any(keyword in item_text for keyword in ['補助', '助成', '支援金', '給付金', '公募']):
+                            continue
+                        
+                        # タイトルを取得
+                        title_elem = item.select_one("h3") or item.select_one("h4") or item.select_one("a") or item.select_one(".title")
+                        if not title_elem:
+                            continue
+                        
+                        title = title_elem.text.strip()
+                        
+                        # URLを取得
+                        link_elem = title_elem if title_elem.name == "a" else item.select_one("a")
+                        if not link_elem or not link_elem.get("href"):
+                            continue
+                            
+                        url = link_elem.get("href")
+                        if not url.startswith("http"):
+                            url = urljoin("https://www.jcci.or.jp", url)
+                        
+                        # 詳細ページから情報を取得
+                        try:
+                            details = scrape_grant_details(url)
+                            description = details.get("description", "")
+                            deadline = details.get("deadline", "")
+                            amount = details.get("amount", "")
+                            ratio = details.get("ratio", "")
+                        except:
+                            # 詳細ページの取得に失敗した場合
+                            description = "日本商工会議所からの情報提供"
+                            deadline = "詳細はWebサイトで確認"
+                            amount = "詳細はWebサイトで確認"
+                            ratio = "詳細はWebサイトで確認"
+                        
+                        # 詳細情報が取得できなかった場合のフォールバック
+                        if not description:
+                            description = "日本商工会議所からの情報提供"
+                        if not deadline:
+                            deadline = "詳細はWebサイトで確認"
+                        if not amount:
+                            amount = "詳細はWebサイトで確認"
+                        if not ratio:
+                            ratio = "詳細はWebサイトで確認"
+                        
+                        # 日付を取得
+                        date_elem = item.select_one(".date") or item.select_one("time")
+                        date_text = date_elem.text.strip() if date_elem else datetime.datetime.now().strftime('%Y年%m月%d日')
+                        
+                        # 助成金情報を追加
+                        additional_grants.append({
+                            "title": title,
+                            "url": url,
+                            "date": date_text,
+                            "description": description,
+                            "deadline": deadline,
+                            "amount": amount,
+                            "ratio": ratio
+                        })
+            except Exception as e:
+                print(f"❌ 日本商工会議所情報取得エラー ({jcci_url}): {e}")
+        
+        print(f"✅ 日本商工会議所から{len(additional_grants) - previous_grants}件の助成金情報を取得しました")
+    except Exception as e:
+        print(f"❌ 日本商工会議所情報取得エラー: {e}")
+    
+    # ものづくり補助金公式サイトの情報取得
+    try:
+        print("🔍 ものづくり補助金の情報を取得中...")
+        monodukuri_url = "https://portal.monodukuri-hojo.jp/"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        response = requests.get(monodukuri_url, headers=headers, timeout=30)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, "html.parser")
             previous_grants = len(additional_grants)
             
-            # ニュース一覧から補助金・助成金関連の情報を取得
-            news_items = soup.select(".news-list li") or soup.select(".news-item")
+            # 公募情報を取得
+            info_blocks = soup.select(".info-block") or soup.select(".news-block") or soup.select("article")
             
-            for item in news_items:
-                # 補助金・助成金に関連する項目のみを抽出
-                item_text = item.text.lower()
-                if not any(keyword in item_text for keyword in ['補助', '助成', '支援金', '給付金']):
-                    continue
-                
-                # タイトルを取得
-                title_elem = item.select_one("h3") or item.select_one("h4") or item.select_one("a")
-                if not title_elem:
-                    continue
-                
-                title = title_elem.text.strip()
-                
-                # URLを取得
-                link_elem = title_elem if title_elem.name == "a" else item.select_one("a")
-                if not link_elem or not link_elem.get("href"):
-                    continue
-                    
-                url = link_elem.get("href")
-                if not url.startswith("http"):
-                    url = urljoin("https://www.jcci.or.jp", url)
-                
-                # 日付を取得
-                date_elem = item.select_one(".date") or item.select_one("time")
-                date_text = date_elem.text.strip() if date_elem else datetime.datetime.now().strftime('%Y年%m月%d日')
-                
-                # 助成金情報を追加
+            if not info_blocks:
+                # 公募情報が見つからない場合は、デフォルト情報を追加
                 additional_grants.append({
-                    "title": title,
-                    "url": url,
-                    "date": date_text,
-                    "description": "日本商工会議所からの情報提供",
+                    "title": "ものづくり・商業・サービス生産性向上促進補助金",
+                    "url": "https://portal.monodukuri-hojo.jp/",
+                    "date": datetime.datetime.now().strftime('%Y年%m月%d日'),
+                    "description": "中小企業・小規模事業者等が取り組む革新的サービス開発・試作品開発・生産プロセスの改善を行うための設備投資等を支援する補助金制度",
                     "deadline": "詳細はWebサイトで確認",
-                    "amount": "詳細はWebサイトで確認",
-                    "ratio": "詳細はWebサイトで確認"
+                    "amount": "最大1,000万円～2,000万円（類型による）",
+                    "ratio": "1/2〜2/3（小規模事業者は2/3）"
                 })
+            else:
+                for block in info_blocks:
+                    title_elem = block.select_one("h3") or block.select_one("h4") or block.select_one(".title")
+                    if not title_elem:
+                        continue
+                    
+                    title = title_elem.text.strip()
+                    if "公募" in title or "募集" in title or "申請" in title:
+                        # 公募に関する情報を抽出
+                        description = block.text.strip()
+                        if title in description:
+                            description = description.replace(title, "").strip()
+                        
+                        # リンクを取得
+                        link_elem = block.select_one("a")
+                        if link_elem and link_elem.get("href"):
+                            url = link_elem.get("href")
+                            if not url.startswith("http"):
+                                url = urljoin("https://portal.monodukuri-hojo.jp/", url)
+                        else:
+                            url = "https://portal.monodukuri-hojo.jp/"
+                        
+                        # 締め切りを抽出
+                        deadline_match = re.search(r'([0-9]{4}年[0-9]{1,2}月[0-9]{1,2}日).*(締切|締め切り|〆切|まで)', description)
+                        deadline = deadline_match.group(1) if deadline_match else "詳細はWebサイトで確認"
+                        
+                        # 助成金情報を追加
+                        additional_grants.append({
+                            "title": "ものづくり・商業・サービス生産性向上促進補助金（" + title + "）",
+                            "url": url,
+                            "date": datetime.datetime.now().strftime('%Y年%m月%d日'),
+                            "description": description[:200] + "..." if len(description) > 200 else description,
+                            "deadline": deadline,
+                            "amount": "最大1,000万円～2,000万円（類型による）",
+                            "ratio": "1/2〜2/3（小規模事業者は2/3）"
+                        })
             
-            print(f"✅ 日本商工会議所から{len(additional_grants) - previous_grants}件の助成金情報を取得しました")
+            print(f"✅ ものづくり補助金から{len(additional_grants) - previous_grants}件の助成金情報を取得しました")
     except Exception as e:
-        print(f"❌ 日本商工会議所情報取得エラー: {e}")
+        print(f"❌ ものづくり補助金情報取得エラー: {e}")
     
     # 重複を排除して返す
     unique_grants = []
@@ -794,9 +1033,10 @@ def scrape_additional_sources():
 
 # --- フィルタリングとGPT評価関数 ---
 def filter_grants_for_target_business(grants, location="長野県塩尻市", industry="情報通信業", employees=56):
-    """対象企業に適した助成金情報にフィルタリングする"""
+    """対象企業に適した助成金情報にフィルタリングする（改善版）"""
     # 情報通信業向け助成金に関連するキーワード
-    it_keywords = ['IT', 'システム', 'デジタル', '情報通信', 'DX', 'セキュリティ', 'アプリ', 'ソフトウェア', 'ICT', 'クラウド', 'AI', 'IoT']
+    it_keywords = ['IT', 'システム', 'デジタル', '情報通信', 'DX', 'セキュリティ', 'アプリ', 'ソフトウェア', 
+                  'ICT', 'クラウド', 'AI', 'IoT', '技術', 'テクノロジー', 'オンライン', 'データ']
     
     # 一次フィルタリング（プログラム的にフィルタリング）
     filtered_grants = []
@@ -818,13 +1058,23 @@ def filter_grants_for_target_business(grants, location="長野県塩尻市", ind
                                                '島根', '岡山', '広島', '山口', '徳島', 
                                                '香川', '愛媛', '高知', '福岡', '佐賀', 
                                                '長崎', '熊本', '大分', '宮崎', '鹿児島', 
-                                               '沖縄']) and '長野' not in title:
+                                               '沖縄']) and not any(keyword in title for keyword in ['長野', '全国', '全て', 'すべて']):
             include = False
         
         # 特定の業種限定で、情報通信業が対象外の場合は除外
-        if (('農業' in title or '農林' in title or '漁業' in title) and 
+        # 例：農業、漁業のみ対象で、かつIT関連のキーワードが含まれていない場合
+        if (('農業' in title or '農林' in title or '漁業' in title or '林業' in title) and 
             not any(kw.lower() in title.lower() or kw.lower() in desc.lower() for kw in it_keywords)):
             include = False
+        
+        # 明示的に除外されるキーワード
+        exclude_keywords = ['終了しました', '募集終了', '受付終了', '募集は締め切りました']
+        if any(exclude_kw in title or exclude_kw in desc for exclude_kw in exclude_keywords):
+            include = False
+        
+        # 地域や業種に関わらず、IT系のキーワードが含まれている場合は含める
+        if any(kw.lower() in title.lower() or kw.lower() in desc.lower() for kw in it_keywords):
+            include = True
         
         if include:
             filtered_grants.append(grant)
@@ -910,12 +1160,14 @@ def send_to_google_chat(message, webhook_url):
         target_line = next((line for line in block_lines if '・対象:' in line), "・対象: 不明")
         priority_line = next((line for line in block_lines if '・優先度:' in line), "・優先度: 不明")
         deadline_line = next((line for line in block_lines if '・申請期限:' in line), "・申請期限: 要確認")
+        amount_line = next((line for line in block_lines if '・助成金額:' in line), "・助成金額: 要確認")
+        ratio_line = next((line for line in block_lines if '・補助割合:' in line), "・補助割合: 要確認")
         
         # URL行を抽出（通常最後の行）
         url_line = next((line for line in block_lines if '・URL:' in line), "")
         
         # 簡潔なメッセージに整形
-        summarized_message += f"{title_num}. {safe_title}\n{target_line}\n{priority_line}\n{deadline_line}\n{url_line}\n\n"
+        summarized_message += f"{title_num}. {safe_title}\n{target_line}\n{priority_line}\n{deadline_line}\n{amount_line}\n{ratio_line}\n{url_line}\n\n"
     
     # ペイロードの作成
     payload = {"text": summarized_message}
@@ -948,7 +1200,7 @@ def main():
     grants = scrape_jnet21_grants()
     print(f"✅ J-Net21から助成金情報取得: {len(grants)} 件")
     
-    # 追加情報ソースから助成金情報を取得
+    # 追加情報ソースから助成金情報を取得（改善版関数を使用）
     additional_grants = scrape_additional_sources()
     print(f"✅ 追加情報ソースから助成金情報取得: {len(additional_grants)} 件")
     
@@ -973,7 +1225,7 @@ def main():
     grants = unique_grants
     print(f"✅ 重複排除後の助成金件数: {len(grants)} 件")
     
-    # 対象企業向けのフィルタリング
+    # 対象企業向けのフィルタリング（改善版関数を使用）
     grants = filter_grants_for_target_business(grants)
     
     # 取得できた件数が少ない場合はバックアップデータを使用
@@ -1036,6 +1288,8 @@ def main():
         full_message += f"・対象: *{target}*\n"
         full_message += f"・優先度: *{priority}*\n"
         full_message += f"・申請期限: {deadline}\n"
+        full_message += f"・助成金額: {amount}\n"  # 助成金額も表示
+        full_message += f"・補助割合: {ratio}\n"   # 補助割合も表示
         # 長すぎる説明文は簡潔にする
         short_reason = reason[:100] + "..." if len(reason) > 100 else reason
         full_message += f"・理由: {short_reason}\n"
